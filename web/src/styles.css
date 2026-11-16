@@ -1,0 +1,19 @@
+:root {
+  /* Mariana-inspired base colours. */
+  --bg: #303841;
+  --fg: #d8dee9;
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, sans-serif;
+}
+
+.placeholder {
+  padding: 2rem;
+}
