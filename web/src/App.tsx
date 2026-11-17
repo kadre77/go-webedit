@@ -4,6 +4,8 @@ import { createAppState } from "./appState";
 import { Editor } from "./Editor";
 import { Sidebar } from "./Sidebar";
 import { SignIn } from "./SignIn";
+import { TabBar } from "./TabBar";
+import { useTabShortcuts } from "./tabShortcuts";
 
 const signInPath = "/signin";
 
@@ -43,6 +45,7 @@ export function App() {
 function SignedInApp() {
   const state = createAppState();
   onMount(() => void state.loadTree());
+  useTabShortcuts(state);
 
   return (
     <div class="layout">
@@ -55,8 +58,9 @@ function SignedInApp() {
             </p>
           )}
         </Show>
+        <TabBar state={state} />
         <Show
-          when={state.openFile()}
+          when={state.activeTab()}
           fallback={
             <div class="placeholder">
               <h1>webedit</h1>
@@ -64,7 +68,7 @@ function SignedInApp() {
             </div>
           }
         >
-          {(file) => <Editor file={file()} />}
+          {(tab) => <Editor tab={tab()} onEdit={(t) => state.pin(t.path)} />}
         </Show>
       </main>
     </div>
