@@ -8,6 +8,7 @@ import { ConflictDialog } from "./ConflictDialog";
 import { Editor } from "./Editor";
 import { createFileActions, PathPromptDialog } from "./fileActions";
 import { CommandPalette, type FinderMode, GotoAnything, GotoHeading } from "./finders";
+import { createSettings } from "./settings";
 import { Sidebar } from "./Sidebar";
 import { SignIn } from "./SignIn";
 import { TabBar } from "./TabBar";
@@ -54,6 +55,7 @@ function SignedInApp() {
     void state.restore();
   });
   const commands = createCommands();
+  const settings = createSettings();
   const [view, setView] = createSignal<EditorView>();
   const [finder, setFinder] = createSignal<FinderMode>();
   // Where focus was before a finder opened, to go back to when it closes.
@@ -68,7 +70,7 @@ function SignedInApp() {
     returnFocus = null;
   };
   const actions = createFileActions(state, { focusEditor: () => view()?.focus() });
-  useAppCommands({ state, actions, commands, openFinder, finderOpen: () => !!finder(), view });
+  useAppCommands({ state, actions, commands, settings, openFinder, finderOpen: () => !!finder(), view });
   const finderHeadings = () => {
     const mode = finder();
     return mode?.kind === "headings" ? mode.headings : undefined;
@@ -97,7 +99,7 @@ function SignedInApp() {
             </div>
           }
         >
-          {(tab) => <Editor tab={tab()} onEdit={(t, doc) => state.edit(t, doc)} onView={setView} />}
+          {(tab) => <Editor tab={tab()} settings={settings} onEdit={(t, doc) => state.edit(t, doc)} onView={setView} />}
         </Show>
         <Switch>
           <Match when={finder()?.kind === "files"}>

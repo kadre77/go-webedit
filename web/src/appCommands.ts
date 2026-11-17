@@ -5,7 +5,8 @@
 // dialog is up, they leave what's behind it alone: with a finder open only
 // the finders' own shortcuts work, and with the Save Conflict dialog or the
 // path prompt open none do. File management (new file and folder, rename or
-// move, delete) acts on the active Tab's file and folder.
+// move, delete) acts on the active Tab's file and folder. The settings
+// commands change font size, word wrap and the default indentation.
 
 import { gotoLine, openSearchPanel } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
@@ -15,6 +16,7 @@ import type { Command, Commands } from "./commands";
 import type { FileActions } from "./fileActions";
 import type { FinderMode } from "./finders";
 import { markdownHeadings } from "./headings";
+import { fontSizes, type Settings, tabWidths } from "./settings";
 
 /** Registers the app's commands and handles their shortcuts, for as long as
  * the calling component lives. */
@@ -22,11 +24,12 @@ export function useAppCommands(app: {
   state: AppState;
   actions: FileActions;
   commands: Commands;
+  settings: Settings;
   openFinder(mode: FinderMode): void;
   finderOpen: Accessor<boolean>;
   view: Accessor<EditorView | undefined>;
 }) {
-  const { state, actions, commands, openFinder, view } = app;
+  const { state, actions, commands, settings, openFinder, view } = app;
 
   /** Runs a file action on the active Tab's file, if there is one. */
   const onActiveFile = (action: (path: string) => void) => () => {
@@ -63,6 +66,16 @@ export function useAppCommands(app: {
     run: () => state.activateAt(n - 1),
   }));
 
+  const settingsCommands: Command[] = [
+    { name: "Increase Font Size", shortcut: "Mod+=", run: () => settings.setFontSize(settings.fontSize() + 1) },
+    { name: "Decrease Font Size", shortcut: "Mod+-", run: () => settings.setFontSize(settings.fontSize() - 1) },
+    { name: "Reset Font Size", shortcut: "Mod+0", run: () => settings.setFontSize(fontSizes.default) },
+    { name: "Toggle Word Wrap", run: () => settings.setWordWrap(!settings.wordWrap()) },
+    ...tabWidths.map((width) => ({ name: `Default Tab Width: ${width}`, run: () => settings.setTabWidth(width) })),
+    { name: "Default Indentation: Spaces", run: () => settings.setUseTabs(false) },
+    { name: "Default Indentation: Tabs", run: () => settings.setUseTabs(true) },
+  ];
+
   onCleanup(
     commands.register(
       ...finders,
@@ -78,6 +91,7 @@ export function useAppCommands(app: {
       { name: "New Folder", run: () => actions.newFolder(state.currentFolder()) },
       { name: "Rename or Move File", run: onActiveFile(actions.rename) },
       { name: "Delete File", run: onActiveFile((path) => void actions.remove(path, "file")) },
+      ...settingsCommands,
     ),
   );
 

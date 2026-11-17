@@ -1,11 +1,9 @@
 // Works out how a file is indented (tabs, or spaces and how many), so the
 // Owner's edits match the file's existing style.
 
-/** Used when a file has no indented lines. The settings ticket makes it adjustable. */
-const defaultIndentUnit = "    ";
-
-/** The indent unit a file uses: "\t", or a run of spaces. */
-export function detectIndentUnit(text: string): string {
+/** The indent unit a file uses: "\t", or a run of spaces; undefined when it
+ * can't be told, for example in a new or empty file. */
+export function detectIndentUnit(text: string): string | undefined {
   let tabLines = 0;
   let spaceLines = 0;
   // How often each increase in space indentation from one line to the next
@@ -27,7 +25,7 @@ export function detectIndentUnit(text: string): string {
     if (width > previous) steps.set(width - previous, (steps.get(width - previous) ?? 0) + 1);
     previous = width;
   }
-  if (tabLines === 0 && spaceLines === 0) return defaultIndentUnit;
+  if (tabLines === 0 && spaceLines === 0) return undefined;
   if (tabLines > spaceLines) return "\t";
   let best = 0;
   let bestCount = 0;
@@ -37,5 +35,5 @@ export function detectIndentUnit(text: string): string {
       bestCount = count;
     }
   }
-  return best ? " ".repeat(best) : defaultIndentUnit;
+  return best ? " ".repeat(best) : undefined;
 }

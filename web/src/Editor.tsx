@@ -2,7 +2,7 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState, type StateEffect, type Text, Transaction } from "@codemirror/state";
+import { Compartment, EditorState, type Extension, type StateEffect, type Text, Transaction } from "@codemirror/state";
 import {
   crosshairCursor,
   drawSelection,
@@ -20,6 +20,7 @@ import type { Tab } from "./appState";
 import { detectIndentUnit } from "./indentation";
 import { languageFor } from "./languages";
 import { mariana } from "./mariana";
+import type { Settings } from "./settings";
 import { sublimeKeymap } from "./sublimeKeymap";
 
 // The server puts a fresh nonce on each app page and allows it in the page's
@@ -53,6 +54,18 @@ const baseExtensions = [
 
 // Each Tab's state holds its file's language here, filled in once loaded.
 const language = new Compartment();
+// And the settings: font size, word wrap, and indent unit and tab width.
+const fontSize = new Compartment();
+const wordWrap = new Compartment();
+const indentation = new Compartment();
+
+// One theme per font size used, so changing size doesn't add a style each time.
+const fontSizeThemes = new Map<number, Extension>();
+const fontSizeTheme = (size: number) => {
+  let theme = fontSizeThemes.get(size);
+  if (!theme) fontSizeThemes.set(size, (theme = EditorView.theme({ "&": { fontSize: `${size}px` } })));
+  return theme;
+};
 
 /** What a Tab's editor looked like when it was last shown. */
 type Snapshot = { state: EditorState; scroll: StateEffect<unknown> };
@@ -62,8 +75,11 @@ type Snapshot = { state: EditorState; scroll: StateEffect<unknown> };
 // back the incoming Tab's, so each Tab keeps its own. When a Tab's content is
 // replaced from outside the editor (reloaded from Dropbox), its editor starts
 // afresh on the new content, keeping the cursor and scroll where they can be.
+// The settings apply to whichever Tab is shown, and a Tab is brought up to
+// date with them as it's shown, so a change reaches every open Tab.
 export function Editor(props: {
   tab: Tab;
+  settings: Settings;
   onEdit: (tab: Tab, doc: Text) => void;
   /** Hands over the editor view once it's made, and undefined once it's gone. */
   onView: (view: EditorView | undefined) => void;
@@ -72,6 +88,34 @@ export function Editor(props: {
   let view!: EditorView;
   let shown: Tab | undefined;
   const snapshots = new WeakMap<Tab, Snapshot>();
+  // Each Tab's detected indent unit; undefined where it can't be detected,
+  // so the default indentation from the settings applies.
+  const detected = new WeakMap<Tab, string | undefined>();
+
+  /** The settings, as they apply to the Tab. A tab character's width can't
+   * be detected from a file, so the tab width applies to every Tab; the
+   * default indent unit only to Tabs whose indentation wasn't detected. */
+  const settingsFor = (tab: Tab) => {
+    const s = props.settings;
+    return {
+      fontSize: fontSizeTheme(s.fontSize()),
+      wordWrap: s.wordWrap() ? EditorView.lineWrapping : [],
+      indentation: [indentUnit.of(detected.get(tab) ?? s.defaultIndentUnit()), EditorState.tabSize.of(s.tabWidth())],
+    };
+  };
+
+  /** Brings the shown Tab's editor up to date with the settings. */
+  const applySettings = (tab: Tab) => {
+    const now = settingsFor(tab);
+    view.dispatch({
+      effects: [
+        fontSize.reconfigure(now.fontSize),
+        wordWrap.reconfigure(now.wordWrap),
+        indentation.reconfigure(now.indentation),
+      ],
+      annotations: Transaction.addToHistory.of(false),
+    });
+  };
 
   const extensions = [
     baseExtensions,
@@ -93,9 +137,17 @@ export function Editor(props: {
         }
       }, (err) => console.warn(`Couldn't load highlighting for ${tab.path}; showing plain text.`, err));
     }
+    detected.set(tab, detectIndentUnit(tab.doc().toString()));
+    const now = settingsFor(tab);
     return EditorState.create({
       doc: tab.doc(),
-      extensions: [extensions, indentUnit.of(detectIndentUnit(tab.doc().toString())), language.of(lang?.ready ?? [])],
+      extensions: [
+        extensions,
+        fontSize.of(now.fontSize),
+        wordWrap.of(now.wordWrap),
+        indentation.of(now.indentation),
+        language.of(lang?.ready ?? []),
+      ],
     });
   };
 
@@ -120,6 +172,7 @@ export function Editor(props: {
           // selection is dispatched again to resync it with the DOM.
           const hadFocus = view.hasFocus;
           view.setState(saved?.state ?? createState(tab));
+          applySettings(tab);
           view.dispatch({
             selection: view.state.selection,
             effects: saved?.scroll,
@@ -130,6 +183,19 @@ export function Editor(props: {
       ),
     );
     props.onView(view);
+
+    // A settings change applies to the shown Tab at once, and to the others
+    // as they're shown.
+    createEffect(
+      on(
+        () => {
+          const s = props.settings;
+          return [s.fontSize(), s.wordWrap(), s.tabWidth(), s.useTabs()];
+        },
+        () => shown && applySettings(shown),
+        { defer: true },
+      ),
+    );
 
     // Runs after the switch above. Edits made in the editor give the Tab the
     // editor's own doc, so any other doc was replaced from outside.
