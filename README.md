@@ -6,6 +6,7 @@ A single-user, Sublime-style web editor for the text files in one Dropbox folder
 
 - `cmd/webedit`: the server binary
 - `internal/config`: environment configuration, validated at startup
+- `internal/dropbox`: the Dropbox port (one interface for all Dropbox access) and the in-memory fake used by tests and test mode
 - `internal/server`: the Echo server (JSON API under `/api`, the Solid app everywhere else)
 - `web/`: the SolidJS frontend (Vite, TypeScript, pnpm); `web/embed.go` embeds `web/dist` into the binary
 
@@ -39,5 +40,6 @@ All configuration is environment variables. The server refuses to start, naming 
 | `WEBEDIT_DATA_DIR`           | Absolute path of the data directory (the Dokku storage mount)                                 |
 | `PORT`                       | Listen port (default `8080`; the image sets `5000`)                                           |
 | `WEBEDIT_TEST_MODE`          | `1`/`true` turns on test mode (for Playwright). Refused with an `https` non-loopback base URL |
+| `WEBEDIT_TEST_FIXTURES`      | Test mode only: a directory whose contents seed the fake Dropbox (Playwright uses `web/e2e/fixtures` via `web/e2e/serve.sh`) |
 
 Health check: `GET /api/health`.

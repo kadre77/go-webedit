@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -89,6 +90,13 @@ func refusesToStart(t *testing.T, env map[string]string) string {
 // check answers.
 func startsAndServes(t *testing.T, env map[string]string) {
 	t.Helper()
+	serve(t, env)
+}
+
+// serve runs the binary on a free port until the test ends, and returns its
+// base URL once the health check answers.
+func serve(t *testing.T, env map[string]string) string {
+	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -98,15 +106,16 @@ func startsAndServes(t *testing.T, env map[string]string) {
 	env["PORT"] = port
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	cmd, stderr := command(ctx, env)
 	if err := cmd.Start(); err != nil {
+		cancel()
 		t.Fatal(err)
 	}
 	exited := make(chan struct{})
 	go func() { cmd.Wait(); close(exited) }()
-	defer func() { cancel(); <-exited }()
+	t.Cleanup(func() { cancel(); <-exited })
 
+	base := "http://127.0.0.1:" + port
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		select {
@@ -114,16 +123,17 @@ func startsAndServes(t *testing.T, env map[string]string) {
 			t.Fatalf("server exited; stderr:\n%s", stderr)
 		default:
 		}
-		res, err := http.Get("http://127.0.0.1:" + port + "/api/health")
+		res, err := http.Get(base + "/api/health")
 		if err == nil {
 			res.Body.Close()
 			if res.StatusCode == http.StatusOK {
-				return
+				return base
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("health check never answered; stderr:\n%s", stderr)
+	return ""
 }
 
 func TestStartsWithValidProductionConfig(t *testing.T) {
@@ -196,5 +206,44 @@ func TestTestModeRefusesProductionBaseURL(t *testing.T) {
 	env["WEBEDIT_BASE_URL"] = "https://edit.example.com"
 	if stderr := refusesToStart(t, env); !strings.Contains(stderr, "WEBEDIT_TEST_MODE") {
 		t.Errorf("stderr does not name WEBEDIT_TEST_MODE:\n%s", stderr)
+	}
+}
+
+func TestTestModeServesTheFixtureDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "Notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Notes", "Fixture.md"), []byte("# hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := testModeEnv()
+	env["WEBEDIT_TEST_FIXTURES"] = dir
+	base := serve(t, env)
+
+	res, err := http.Get(base + "/api/file?path=Notes/Fixture.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), `"content":"# hi\n"`) {
+		t.Errorf("status = %d, body %s", res.StatusCode, body)
+	}
+}
+
+func TestTestModeRefusesAMissingFixtureDirectory(t *testing.T) {
+	env := testModeEnv()
+	env["WEBEDIT_TEST_FIXTURES"] = filepath.Join(t.TempDir(), "nope")
+	if stderr := refusesToStart(t, env); !strings.Contains(stderr, "WEBEDIT_TEST_FIXTURES") {
+		t.Errorf("stderr does not name WEBEDIT_TEST_FIXTURES:\n%s", stderr)
+	}
+}
+
+func TestFixturesAreRefusedOutsideTestMode(t *testing.T) {
+	env := productionEnv()
+	env["WEBEDIT_TEST_FIXTURES"] = t.TempDir()
+	if stderr := refusesToStart(t, env); !strings.Contains(stderr, "WEBEDIT_TEST_FIXTURES") {
+		t.Errorf("stderr does not name WEBEDIT_TEST_FIXTURES:\n%s", stderr)
 	}
 }

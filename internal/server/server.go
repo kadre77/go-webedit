@@ -10,13 +10,15 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/kadre77/webedit/internal/dropbox"
 )
 
 const indexPage = "index.html"
 
 // New returns the server's HTTP handler. frontend holds the built Solid app,
 // with index.html at its root.
-func New(frontend fs.FS) *echo.Echo {
+func New(frontend fs.FS, port dropbox.Port) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -26,6 +28,9 @@ func New(frontend fs.FS) *echo.Echo {
 	api.GET("/health", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
+	fh := &fileHandlers{port: port}
+	api.GET("/tree", fh.tree)
+	api.GET("/file", fh.open)
 	notFound := func(echo.Context) error { return echo.ErrNotFound }
 	e.Any("/api", notFound)
 	api.Any("/*", notFound)
@@ -74,7 +79,15 @@ func handleError(err error, c echo.Context) {
 		return
 	}
 	status, message := http.StatusInternalServerError, "internal error"
+	var ae *Error
 	var he *echo.HTTPError
+	if errors.As(err, &ae) {
+		if ae.Err != nil {
+			c.Logger().Error(ae.Err)
+		}
+		writeError(c, ae.Status, ae.Code, ae.Message)
+		return
+	}
 	if errors.As(err, &he) {
 		status = he.Code
 		if m, ok := he.Message.(string); ok {
@@ -90,6 +103,11 @@ func handleError(err error, c echo.Context) {
 			code = "bad-request"
 		}
 	}
+	writeError(c, status, code, message)
+}
+
+func writeError(c echo.Context, status int, code, message string) {
+	var err error
 	if c.Request().Method == http.MethodHead {
 		err = c.NoContent(status)
 	} else {
@@ -99,3 +117,16 @@ func handleError(err error, c echo.Context) {
 		c.Logger().Error(err)
 	}
 }
+
+// Error is an API failure with a machine-readable code. Handlers return it
+// and the error handler writes it in the one JSON error shape.
+type Error struct {
+	Status  int
+	Code    string
+	Message string
+	Err     error // the underlying cause, logged but never sent
+}
+
+func (e *Error) Error() string { return e.Code + ": " + e.Message }
+
+func (e *Error) Unwrap() error { return e.Err }

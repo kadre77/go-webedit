@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ type Config struct {
 	DataDir          string
 	Port             string
 	TestMode         bool
+	TestFixtures     string // test mode only: directory seeding the fake Dropbox
 }
 
 const (
@@ -103,6 +105,16 @@ func Load(getenv func(string) string) (Config, error) {
 		cfg.Port = "8080"
 	} else if n, err := strconv.Atoi(cfg.Port); err != nil || n < 1 || n > 65535 {
 		bad("PORT", "must be a TCP port number, got %q", cfg.Port)
+	}
+
+	if v := getenv("WEBEDIT_TEST_FIXTURES"); v != "" {
+		if !cfg.TestMode {
+			bad("WEBEDIT_TEST_FIXTURES", "is only allowed in test mode")
+		} else if fi, err := os.Stat(v); err != nil || !fi.IsDir() {
+			bad("WEBEDIT_TEST_FIXTURES", "must be an existing directory, got %q", v)
+		} else {
+			cfg.TestFixtures = v
+		}
 	}
 
 	if cfg.TestMode && cfg.BaseURL != nil && looksLikeProduction(cfg.BaseURL) {

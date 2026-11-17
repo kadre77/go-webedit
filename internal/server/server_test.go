@@ -3,27 +3,40 @@ package server_test
 import (
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
 
+	"github.com/kadre77/webedit/internal/dropbox"
 	"github.com/kadre77/webedit/internal/server"
 )
 
 const indexHTML = `<!doctype html><title>webedit</title><div id="root"></div>`
 
 // newTestServer runs the real server in-process with a stand-in frontend
-// build.
+// build and an empty fake Dropbox.
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	return newTestServerWith(t, nil)
+}
+
+// newTestServerWith runs the real server in-process with a stand-in frontend
+// build and a fake Dropbox seeded from seed.
+func newTestServerWith(t *testing.T, seed fs.FS) *httptest.Server {
+	t.Helper()
+	fake, err := dropbox.NewFake("dbid:owner", seed)
+	if err != nil {
+		t.Fatal(err)
+	}
 	frontend := fstest.MapFS{
 		"index.html":         {Data: []byte(indexHTML)},
 		"assets/app-abc.js":  {Data: []byte(`console.log("app")`)},
 		"assets/app-abc.css": {Data: []byte(`body{}`)},
 	}
-	ts := httptest.NewServer(server.New(frontend))
+	ts := httptest.NewServer(server.New(frontend, fake))
 	t.Cleanup(ts.Close)
 	return ts
 }

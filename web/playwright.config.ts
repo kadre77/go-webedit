@@ -16,7 +16,7 @@ export default defineConfig({
     { name: "phone", use: { ...devices["Pixel 7"] } },
   ],
   webServer: {
-    command: "go build -o bin/webedit ./cmd/webedit && ./bin/webedit",
+    command: "web/e2e/serve.sh",
     cwd: "..",
     url: `${baseURL}/api/health`,
     reuseExistingServer: false,

@@ -1,17 +1,97 @@
 :root {
   /* Mariana-inspired base colours. */
   --bg: #303841;
+  --bg-sidebar: #262c33;
+  --bg-hover: #3a434d;
+  --bg-active: #4e5a65;
   --fg: #d8dee9;
+  --fg-dim: #8d97a2;
+  --accent: #f9ae58;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: dark;
 }
 
 html,
-body {
+body,
+#root {
   margin: 0;
   height: 100%;
   background: var(--bg);
   color: var(--fg);
   font-family: system-ui, sans-serif;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: min(260px, 40vw) 1fr;
+  height: 100%;
+}
+
+.sidebar {
+  background: var(--bg-sidebar);
+  overflow: auto;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.row.active {
+  background: var(--bg-active);
+}
+
+.row.unopenable {
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+.twisty {
+  width: 1em;
+  flex: none;
+  color: var(--fg-dim);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mark {
+  margin-left: auto;
+  padding-left: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.notice {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  background: #5c3a3a;
+  font-size: 0.875rem;
 }
 
 .placeholder {

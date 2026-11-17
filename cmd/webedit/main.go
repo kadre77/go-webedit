@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kadre77/webedit/internal/config"
+	"github.com/kadre77/webedit/internal/dropbox"
 	"github.com/kadre77/webedit/internal/server"
 	"github.com/kadre77/webedit/web"
 )
@@ -29,13 +31,21 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	var port dropbox.Port = dropbox.NotConnected{}
 	if cfg.TestMode {
 		slog.Warn("TEST MODE is on; never use this in production")
+		var seed fs.FS
+		if cfg.TestFixtures != "" {
+			seed = os.DirFS(cfg.TestFixtures)
+		}
+		if port, err = dropbox.NewFake(cfg.OwnerAccountID, seed); err != nil {
+			return err
+		}
 	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           server.New(web.Dist()),
+		Handler:           server.New(web.Dist(), port),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
