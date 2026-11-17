@@ -103,7 +103,7 @@ function SignedInApp() {
               paths={state.textFiles()}
               onOpen={async (path) => {
                 closeFinder();
-                if (await state.openFile(path, { pinned: true })) view()?.focus();
+                if (await state.openFile(path)) view()?.focus();
               }}
               onClose={closeFinder}
             />

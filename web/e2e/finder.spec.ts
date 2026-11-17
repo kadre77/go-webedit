@@ -37,6 +37,16 @@ test.describe("Goto Anything", () => {
     await expect(editor(page)).toContainText("A plan spread across folders.");
   });
 
+  test("the chosen file opens in the Preview Tab, replacing the one there", async ({ page }) => {
+    await page.getByRole("tree").getByRole("treeitem", { name: "readme.md" }).click();
+    await expect(tab(page, "readme.md")).toHaveAttribute("data-preview", "true");
+    await page.keyboard.press("Control+p");
+    await finder(page, "Goto Anything").getByRole("combobox").fill("today");
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("tablist", { name: "Open files" }).getByRole("tab")).toHaveText(["Today.md"]);
+    await expect(tab(page, "Today.md")).toHaveAttribute("data-preview", "true");
+  });
+
   test("while it's open, Tab shortcuts leave the Tabs alone but the finder shortcuts switch finders", async ({
     page,
   }) => {
