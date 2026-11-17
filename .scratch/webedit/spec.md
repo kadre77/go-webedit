@@ -131,7 +131,7 @@ A single-user web app on a public VPS (deployed with Dokku from a Dockerfile). T
 - The Dropbox app is registered with App Folder access, so the Root Folder is the App Folder. Scopes are limited to `account_info.read`, `files.metadata.read`, `files.content.read` and `files.content.write`.
 - All Dropbox access sits behind one Go interface, the Dropbox port. It covers: OAuth code exchange (with PKCE) and token refresh, getting the current account ID, recursive folder listing, downloading a file with its revision, uploading with an "update only if revision matches" mode, uploading a new file that must not exist, creating a folder, moving/renaming, and deleting. A real adapter calls Dropbox. An in-memory fake implements the same interface for tests and for the test mode (see Testing Decisions).
 - The fake must behave like Dropbox where it matters: revisions change on every write, conditional uploads fail with a conflict when the revision doesn't match, paths are case-insensitive but keep their display case, and moves into an existing path fail.
-- Dropbox paths are case-insensitive. The server cleans every client-supplied path (rejecting `..` segments, empty segments, control characters, and anything that resolves outside the Root Folder) before it reaches the Dropbox port. If ADR 0003's fallback to Full Dropbox is ever used, the Root Folder prefix check must compare case-insensitively.
+- Dropbox paths are case-insensitive. The server cleans every client-supplied path (rejecting `..` segments, empty segments, control characters, and anything that resolves outside the Root Folder) before it reaches the Dropbox port. Segments that would still become `.`, `..` or contain a separator after further percent-decoding are rejected too, so a file literally named like `%2e%2e` or `a%2fb` can't be opened: a deliberate trade for defence against a layer that decodes again. If ADR 0003's fallback to Full Dropbox is ever used, the Root Folder prefix check must compare case-insensitively.
 - The refresh token is encrypted with an authenticated cipher keyed by the token-encryption key and stored as a file in the data directory. Access tokens live only in memory and are refreshed when they expire.
 - Requests to Dropbox that are rate-limited or fail transiently surface to the client as a retryable error. The client keeps the Draft.
 
@@ -163,7 +163,7 @@ Shapes, not exact names:
 - **Move:** renames or moves a file or folder, and fails if the destination exists.
 - **Delete:** deletes a file or folder. Dropbox keeps deleted items in its trash.
 - **Session:** returns whether the caller is signed in. Sign-in start, OAuth callback and sign-out are plain browser routes, not JSON.
-- Errors use one JSON shape with a machine-readable code (for example unauthorized, reauthorize, forbidden-origin, invalid-path, not-found, already-exists, conflict, binary-file, too-large, dropbox-unavailable) and a human message.
+- Errors use one JSON shape with a machine-readable code and a human message. The codes are: unauthorized, reauthorize, forbidden-origin, invalid-path, not-found, not-a-file (a folder where a file was expected), already-exists, conflict, binary-file, too-large, dropbox-unavailable. A new code is added to this list when it is introduced.
 
 ### Line endings and encoding
 
@@ -175,7 +175,7 @@ Shapes, not exact names:
 
 - SolidJS application with these modules:
   - **API client:** typed wrapper over the JSON API that turns error codes into typed failures and handles 401/reauthorize redirects.
-  - **Workspace state:** the tree, open Tabs (including which one is the Preview Tab), the active Tab, Drafts, and each Tab's revision and line-ending facts. It also owns the conflict and outside-change rules.
+  - **App state:** the tree, open Tabs (including which one is the Preview Tab), the active Tab, Drafts, and each Tab's revision and line-ending facts. It also owns the conflict and outside-change rules.
   - **Draft store:** persists Drafts, the list of open Tabs and the active Tab in browser storage (IndexedDB), keyed by path, and restores them on load. It wraps every storage call so the app still works when storage is unavailable.
   - **Editor view:** CodeMirror 6 with the Mariana dark theme, language detection by file extension with languages loaded lazily, indentation detection, the Sublime-style keymap, multi-cursor (desktop), search and replace, and go-to-line.
   - **Goto Anything** and **Command Palette:** one shared fuzzy-finder overlay used by both, ranking file-name matches above matches spread across the path.

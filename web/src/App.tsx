@@ -1,17 +1,17 @@
 import { onMount, Show } from "solid-js";
 import { Editor } from "./Editor";
 import { Sidebar } from "./Sidebar";
-import { createWorkspace } from "./workspace";
+import { createAppState } from "./appState";
 
 export function App() {
-  const workspace = createWorkspace();
-  onMount(() => void workspace.loadTree());
+  const state = createAppState();
+  onMount(() => void state.loadTree());
 
   return (
     <div class="layout">
-      <Sidebar workspace={workspace} />
+      <Sidebar state={state} />
       <main class="main">
-        <Show when={workspace.error()}>
+        <Show when={state.error()}>
           {(message) => (
             <p class="notice" role="alert">
               {message()}
@@ -19,7 +19,7 @@ export function App() {
           )}
         </Show>
         <Show
-          when={workspace.openFile()}
+          when={state.openFile()}
           fallback={
             <div class="placeholder">
               <h1>webedit</h1>

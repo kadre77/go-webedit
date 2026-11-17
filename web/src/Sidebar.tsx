@@ -1,12 +1,12 @@
 import { For, Show } from "solid-js";
-import type { TreeNode, Workspace } from "./workspace";
+import type { AppState, TreeNode } from "./appState";
 
 const marks = { "too-large": "too large", binary: "binary" } as const;
 
 // The file tree, rendered as a flat list of visible rows (an ARIA tree with
 // aria-level), so each row's accessible name is just its own label.
-export function Sidebar(props: { workspace: Workspace }) {
-  const ws = props.workspace;
+export function Sidebar(props: { state: AppState }) {
+  const ws = props.state;
   const activate = (node: TreeNode) =>
     node.kind === "folder" ? ws.toggleFolder(node.path) : void ws.open(node);
 

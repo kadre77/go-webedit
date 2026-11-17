@@ -1,4 +1,4 @@
-// Workspace state: the tree, which folders are expanded, which files turned
+// App state: the tree, which folders are expanded, which files turned
 // out to be binary this session, and the open file.
 
 import { createMemo, createSignal } from "solid-js";
@@ -56,7 +56,7 @@ function buildTree(entries: TreeEntry[], binary: ReadonlySet<string>): TreeNode[
   return root;
 }
 
-export function createWorkspace() {
+export function createAppState() {
   const [entries, setEntries] = createSignal<TreeEntry[]>([]);
   const [binary, setBinary] = createSignal<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set());
@@ -122,4 +122,4 @@ export function createWorkspace() {
   };
 }
 
-export type Workspace = ReturnType<typeof createWorkspace>;
+export type AppState = ReturnType<typeof createAppState>;
