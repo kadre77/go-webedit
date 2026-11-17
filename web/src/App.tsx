@@ -1,12 +1,15 @@
+import { EditorView } from "@codemirror/view";
 import { Match, onCleanup, onMount, Show, Switch, createSignal } from "solid-js";
 import { api, setAuthLostHandler } from "./api";
+import { useAppCommands } from "./appCommands";
 import { createAppState } from "./appState";
+import { createCommands } from "./commands";
 import { ConflictDialog } from "./ConflictDialog";
 import { Editor } from "./Editor";
+import { CommandPalette, type FinderMode, GotoAnything, GotoHeading } from "./finders";
 import { Sidebar } from "./Sidebar";
 import { SignIn } from "./SignIn";
 import { TabBar } from "./TabBar";
-import { useTabShortcuts } from "./tabShortcuts";
 
 const signInPath = "/signin";
 
@@ -49,7 +52,25 @@ function SignedInApp() {
     void state.loadTree();
     void state.restore();
   });
-  useTabShortcuts(state);
+  const commands = createCommands();
+  const [view, setView] = createSignal<EditorView>();
+  const [finder, setFinder] = createSignal<FinderMode>();
+  // Where focus was before a finder opened, to go back to when it closes.
+  let returnFocus: Element | null = null;
+  const openFinder = (mode: FinderMode) => {
+    if (!finder()) returnFocus = document.activeElement;
+    setFinder(mode);
+  };
+  const closeFinder = () => {
+    setFinder(undefined);
+    if (returnFocus instanceof HTMLElement && returnFocus.isConnected) returnFocus.focus();
+    returnFocus = null;
+  };
+  useAppCommands({ state, commands, openFinder, finderOpen: () => !!finder(), view });
+  const finderHeadings = () => {
+    const mode = finder();
+    return mode?.kind === "headings" ? mode.headings : undefined;
+  };
   useOutsideChangeChecks(state);
   useDraftGuard(state);
 
@@ -74,8 +95,46 @@ function SignedInApp() {
             </div>
           }
         >
-          {(tab) => <Editor tab={tab()} onEdit={(t, doc) => state.edit(t, doc)} />}
+          {(tab) => <Editor tab={tab()} onEdit={(t, doc) => state.edit(t, doc)} onView={setView} />}
         </Show>
+        <Switch>
+          <Match when={finder()?.kind === "files"}>
+            <GotoAnything
+              paths={state.textFiles()}
+              onOpen={async (path) => {
+                closeFinder();
+                if (await state.openFile(path, { pinned: true })) view()?.focus();
+              }}
+              onClose={closeFinder}
+            />
+          </Match>
+          <Match when={finder()?.kind === "commands"}>
+            <CommandPalette
+              commands={commands.list()}
+              onRun={(command) => {
+                closeFinder();
+                command.run();
+              }}
+              onClose={closeFinder}
+            />
+          </Match>
+          <Match when={finder()?.kind === "headings"}>
+            <GotoHeading
+              headings={finderHeadings()}
+              onJump={(heading) => {
+                closeFinder();
+                const v = view();
+                if (!v) return;
+                v.dispatch({
+                  selection: { anchor: heading.from },
+                  effects: EditorView.scrollIntoView(heading.from, { y: "start", yMargin: 40 }),
+                });
+                v.focus();
+              }}
+              onClose={closeFinder}
+            />
+          </Match>
+        </Switch>
         <Show when={state.conflict()} keyed>
           {(conflict) => <ConflictDialog state={state} conflict={conflict} />}
         </Show>

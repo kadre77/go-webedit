@@ -103,11 +103,11 @@ languages.push(
  * language seen before is highlighted from its first paint.
  */
 export function languageFor(path: string):
-  | { ready: LanguageSupport | undefined; load: () => Promise<LanguageSupport> }
+  | { name: string; ready: LanguageSupport | undefined; load: () => Promise<LanguageSupport> }
   | undefined {
   // Lower-cased, so README.MD is Markdown too.
   const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
   const description = LanguageDescription.matchFilename(languages, name);
   if (!description) return undefined;
-  return { ready: description.support, load: () => description.load() };
+  return { name: description.name, ready: description.support, load: () => description.load() };
 }

@@ -276,3 +276,100 @@ body,
   color: var(--fg);
   font-weight: 400;
 }
+
+/* The finder overlay: Goto Anything, the Command Palette and Goto Heading. */
+.finder {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: min(28rem, calc(100vh - 4rem));
+  margin: 3rem auto auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--bg-active);
+  border-radius: 6px;
+  background: var(--bg-sidebar);
+  color: var(--fg);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+.finder:not([open]) {
+  display: none;
+}
+
+.finder::backdrop {
+  background: rgb(0 0 0 / 0.25);
+}
+
+.finder-input {
+  margin: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--bg-active);
+  border-radius: 4px;
+  outline: none;
+}
+
+.finder-input:focus {
+  border-color: var(--accent);
+}
+
+.finder-list {
+  margin: 0;
+  padding: 0 0 0.5rem;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.finder-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.finder-option[aria-selected="true"] {
+  background: var(--bg-active);
+}
+
+.finder-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.finder-label,
+.finder-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finder-detail {
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+}
+
+.finder mark {
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.finder-hint {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+}
+
+.finder-empty {
+  margin: 0;
+  padding: 0.25rem 0.75rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--fg-dim);
+}

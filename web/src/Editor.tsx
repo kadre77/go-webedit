@@ -62,7 +62,12 @@ type Snapshot = { state: EditorState; scroll: StateEffect<unknown> };
 // back the incoming Tab's, so each Tab keeps its own. When a Tab's content is
 // replaced from outside the editor (reloaded from Dropbox), its editor starts
 // afresh on the new content, keeping the cursor and scroll where they can be.
-export function Editor(props: { tab: Tab; onEdit: (tab: Tab, doc: Text) => void }) {
+export function Editor(props: {
+  tab: Tab;
+  onEdit: (tab: Tab, doc: Text) => void;
+  /** Hands over the editor view once it's made, and undefined once it's gone. */
+  onView: (view: EditorView | undefined) => void;
+}) {
   let host!: HTMLDivElement;
   let view!: EditorView;
   let shown: Tab | undefined;
@@ -98,7 +103,10 @@ export function Editor(props: { tab: Tab; onEdit: (tab: Tab, doc: Text) => void 
     // Created with the base extensions, so the CSP nonce is there when the
     // style element is made.
     view = new EditorView({ state: EditorState.create({ extensions }), parent: host });
-    onCleanup(() => view.destroy());
+    onCleanup(() => {
+      props.onView(undefined);
+      view.destroy();
+    });
 
     createEffect(
       on(
@@ -121,6 +129,7 @@ export function Editor(props: { tab: Tab; onEdit: (tab: Tab, doc: Text) => void 
         },
       ),
     );
+    props.onView(view);
 
     // Runs after the switch above. Edits made in the editor give the Tab the
     // editor's own doc, so any other doc was replaced from outside.

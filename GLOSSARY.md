@@ -41,3 +41,7 @@ _Avoid_: Quick open, file search
 
 **Command Palette**:
 The fuzzy-searchable list of the app's own commands.
+
+**Goto Heading**:
+The finder (Ctrl+R) that lists the active Markdown file's headings and jumps to the one picked.
+_Avoid_: Goto symbol, outline

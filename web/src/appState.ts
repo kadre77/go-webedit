@@ -242,6 +242,15 @@ export function createAppState() {
 
   const tree = createMemo(() => buildTree(entries(), binary()));
 
+  /** Every Text File in the tree, by path. */
+  const textFiles = createMemo(() => {
+    const paths: string[] = [];
+    const walk = (nodes: TreeNode[]) =>
+      nodes.forEach((n) => (n.kind === "folder" ? walk(n.children) : n.unopenable || paths.push(n.path)));
+    walk(tree());
+    return paths;
+  });
+
   /** The rows currently visible in the sidebar, in order. */
   const visibleRows = createMemo(() => {
     const rows: TreeNode[] = [];
@@ -439,6 +448,7 @@ export function createAppState() {
 
   return {
     visibleRows,
+    textFiles,
     tabs,
     activeTab,
     error,
@@ -597,6 +607,9 @@ export function createAppState() {
       const tab = activeTab();
       if (tab) this.close(tab.path);
     },
+
+    /** Opens a Text File by path; see openPath. */
+    openFile: openPath,
 
     /** Opens a file from the tree; see openPath. */
     async open(node: TreeNode, options: { pinned?: boolean } = {}) {
