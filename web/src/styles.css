@@ -373,3 +373,69 @@ body,
   font-size: 0.9rem;
   color: var(--fg-dim);
 }
+
+/* The file tree's context menu. */
+.menu {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 11rem;
+  padding: 0.25rem 0;
+  border: 1px solid var(--bg-active);
+  border-radius: 4px;
+  background: var(--bg-sidebar);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.4);
+  font-size: 0.875rem;
+}
+
+.menu button {
+  font: inherit;
+  text-align: left;
+  color: var(--fg);
+  background: none;
+  border: none;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+}
+
+.menu button:hover,
+.menu button:focus {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+/* A labelled text field in a dialog, such as the path prompt's. */
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--fg-dim);
+}
+
+.dialog-field input {
+  width: min(28rem, calc(100vw - 5rem));
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--bg-active);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.dialog-field input:focus {
+  outline: 1px solid var(--accent);
+}
+
+.dialog .dialog-error {
+  color: #ec5f66;
+}
+
+.dialog-buttons button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

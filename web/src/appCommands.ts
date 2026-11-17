@@ -3,14 +3,16 @@
 // Ctrl+Shift+Tab and Ctrl+PageDown / Ctrl+PageUp switch, Alt+1..9 jumps).
 // Their shortcuts work anywhere in the page, ahead of the editor. While a
 // dialog is up, they leave what's behind it alone: with a finder open only
-// the finders' own shortcuts work, and with the Save Conflict dialog open
-// none do.
+// the finders' own shortcuts work, and with the Save Conflict dialog or the
+// path prompt open none do. File management (new file and folder, rename or
+// move, delete) acts on the active Tab's file and folder.
 
 import { gotoLine, openSearchPanel } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
 import { type Accessor, onCleanup } from "solid-js";
 import type { AppState } from "./appState";
 import type { Command, Commands } from "./commands";
+import type { FileActions } from "./fileActions";
 import type { FinderMode } from "./finders";
 import { markdownHeadings } from "./headings";
 
@@ -18,12 +20,19 @@ import { markdownHeadings } from "./headings";
  * the calling component lives. */
 export function useAppCommands(app: {
   state: AppState;
+  actions: FileActions;
   commands: Commands;
   openFinder(mode: FinderMode): void;
   finderOpen: Accessor<boolean>;
   view: Accessor<EditorView | undefined>;
 }) {
-  const { state, commands, openFinder, view } = app;
+  const { state, actions, commands, openFinder, view } = app;
+
+  /** Runs a file action on the active Tab's file, if there is one. */
+  const onActiveFile = (action: (path: string) => void) => () => {
+    const tab = state.activeTab();
+    if (tab) action(tab.path);
+  };
 
   /** Runs an editor command on the active Tab's editor, if one is shown. */
   const inEditor = (command: (view: EditorView) => boolean) => () => {
@@ -65,11 +74,16 @@ export function useAppCommands(app: {
       { name: "Previous Tab", shortcut: "Ctrl+Shift+Tab", moreShortcuts: ["Mod+PageUp"], run: () => state.cycle(-1) },
       ...tabJumps,
       { name: "Refresh File Tree", run: () => void state.loadTree() },
+      { name: "New File", run: () => actions.newFile(state.currentFolder()) },
+      { name: "New Folder", run: () => actions.newFolder(state.currentFolder()) },
+      { name: "Rename or Move File", run: onActiveFile(actions.rename) },
+      { name: "Delete File", run: onActiveFile((path) => void actions.remove(path, "file")) },
     ),
   );
 
   /** Whether a shortcut may run the command now. */
-  const allowed = (command: Command) => !state.conflict() && (!app.finderOpen() || finders.includes(command));
+  const allowed = (command: Command) =>
+    !state.conflict() && !actions.prompt() && (!app.finderOpen() || finders.includes(command));
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (!commands.handleKey(e, allowed)) return;

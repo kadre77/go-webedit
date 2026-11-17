@@ -6,6 +6,7 @@ import { createAppState } from "./appState";
 import { createCommands } from "./commands";
 import { ConflictDialog } from "./ConflictDialog";
 import { Editor } from "./Editor";
+import { createFileActions, PathPromptDialog } from "./fileActions";
 import { CommandPalette, type FinderMode, GotoAnything, GotoHeading } from "./finders";
 import { Sidebar } from "./Sidebar";
 import { SignIn } from "./SignIn";
@@ -66,7 +67,8 @@ function SignedInApp() {
     if (returnFocus instanceof HTMLElement && returnFocus.isConnected) returnFocus.focus();
     returnFocus = null;
   };
-  useAppCommands({ state, commands, openFinder, finderOpen: () => !!finder(), view });
+  const actions = createFileActions(state, { focusEditor: () => view()?.focus() });
+  useAppCommands({ state, actions, commands, openFinder, finderOpen: () => !!finder(), view });
   const finderHeadings = () => {
     const mode = finder();
     return mode?.kind === "headings" ? mode.headings : undefined;
@@ -76,7 +78,7 @@ function SignedInApp() {
 
   return (
     <div class="layout">
-      <Sidebar state={state} />
+      <Sidebar state={state} actions={actions} />
       <main class="main">
         <Show when={state.error()}>
           {(message) => (
@@ -135,6 +137,9 @@ function SignedInApp() {
             />
           </Match>
         </Switch>
+        <Show when={actions.prompt()} keyed>
+          {(prompt) => <PathPromptDialog actions={actions} prompt={prompt} />}
+        </Show>
         <Show when={state.conflict()} keyed>
           {(conflict) => <ConflictDialog state={state} conflict={conflict} />}
         </Show>

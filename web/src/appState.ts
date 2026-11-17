@@ -6,9 +6,9 @@
 
 import { Text } from "@codemirror/state";
 import { type Accessor, batch, createEffect, createMemo, createSignal, on } from "solid-js";
-import { api, ApiError, type OpenedFile, type TreeEntry } from "./api";
+import { api, ApiError, type ChangedEntry, type OpenedFile, type TreeEntry } from "./api";
 import { createDraftStore, type StoredDraft } from "./draftStore";
-import { pathKey } from "./paths";
+import { folderOf, isUnder, movedPath, pathKey } from "./paths";
 
 export { pathKey };
 
@@ -64,8 +64,9 @@ function buildTree(entries: TreeEntry[], binary: ReadonlySet<string>): TreeNode[
 /** An open Text File. The editor keeps each Tab's editor state (cursor,
  * undo history) keyed by this object, so a reopened file is a new Tab. */
 export type Tab = {
+  /** Where the file is now: it follows a rename or move. Reactive. */
   readonly path: string;
-  /** The file as it was opened. */
+  /** The file as it was opened (at the path it had then). */
   readonly file: OpenedFile;
   /** The editor's content: the Draft, when it differs from what's saved. */
   readonly doc: Accessor<Text>;
@@ -82,6 +83,8 @@ type TabControls = {
   /** Replaces the content with the file as Dropbox has it now, dropping
    * any Draft. */
   reload(file: OpenedFile): void;
+  /** The file was renamed or moved to path. */
+  moved(path: string): void;
 };
 
 const sameText = (a: Text, b: Text) => a === b || (a.length === b.length && a.eq(b));
@@ -97,7 +100,16 @@ function createTab(file: OpenedFile, draft: StoredDraft | undefined, onChange: (
   const [doc, setDoc] = createSignal(start);
   const [saved, setSaved] = createSignal({ doc: opened, rev: draft?.rev ?? file.rev });
   const [modified, setModified] = createSignal(!sameText(start, opened));
-  const tab: Tab = { path: file.path, file, doc, rev: () => saved().rev, modified };
+  const [path, setPath] = createSignal(file.path);
+  const tab: Tab = {
+    get path() {
+      return path();
+    },
+    file,
+    doc,
+    rev: () => saved().rev,
+    modified,
+  };
   return [
     tab,
     {
@@ -123,6 +135,9 @@ function createTab(file: OpenedFile, draft: StoredDraft | undefined, onChange: (
           setModified(false);
         });
         onChange(tab);
+      },
+      moved(next) {
+        setPath(next);
       },
     },
   ];
@@ -173,6 +188,24 @@ export type SaveConflict = { tab: Tab; rev: string };
 
 export type ConflictChoice = "overwrite" | "reload" | "copy" | "cancel";
 
+/** The entries with path added, and any of its parent folders missing from
+ * them (Dropbox creates those), in place of anything already at path. */
+function withEntry(entries: readonly TreeEntry[], entry: TreeEntry): TreeEntry[] {
+  const known = new Set(entries.map((e) => pathKey(e.path)));
+  const parents = parentFolders(entry.path)
+    .filter((p) => !known.has(pathKey(p)))
+    .map((p): TreeEntry => ({ path: p, kind: "folder" }));
+  return [...entries.filter((e) => pathKey(e.path) !== pathKey(entry.path)), ...parents, entry];
+}
+
+/** The tree entry for a newly created file or folder. */
+const createdEntry = (e: ChangedEntry): TreeEntry =>
+  e.kind === "folder" ? { path: e.path, kind: "folder" } : { path: e.path, kind: "file", size: 0, openable: true };
+
+/** A set of path keys with those at or under `from` moved under `to`. */
+const movedKeys = (keys: ReadonlySet<string>, from: string, to: string) =>
+  new Set([...keys].map((k) => movedPath(k, pathKey(from), pathKey(to))));
+
 export function createAppState() {
   const store = createDraftStore();
   const [entries, setEntries] = createSignal<TreeEntry[]>([]);
@@ -210,16 +243,16 @@ export function createAppState() {
   const indexOf = (path: string) => tabs().findIndex(isAt(pathKey(path)));
   const activeTab = createMemo(() => tabs().find(isAt(activeKey())));
 
+  /** Expands the folders above path, so it shows in the tree. */
+  const reveal = (path: string) => {
+    const open = expanded();
+    const missing = parentFolders(path).filter((p) => !open.has(pathKey(p)));
+    if (missing.length) setExpanded(new Set([...open, ...missing.map(pathKey)]));
+  };
+
   // Reveal the file in the tree when its Tab becomes active. Only then: the
   // Owner may still collapse its folders afterwards.
-  createEffect(
-    on(activeTab, (tab) => {
-      if (!tab) return;
-      const open = expanded();
-      const missing = parentFolders(tab.path).filter((p) => !open.has(pathKey(p)));
-      if (missing.length) setExpanded(new Set([...open, ...missing.map(pathKey)]));
-    }),
-  );
+  createEffect(on(activeTab, (tab) => tab && reveal(tab.path)));
 
   const activateAt = (index: number) => {
     const tab = tabs()[index];
@@ -452,6 +485,8 @@ export function createAppState() {
     tabs,
     activeTab,
     error,
+    /** Shows a failure in the notice. */
+    report,
     isExpanded: (path: string) => expanded().has(pathKey(path)),
     isActive: (path: string) => activeKey() === pathKey(path),
     isPreview: (path: string) => previewKey() === pathKey(path),
@@ -545,6 +580,89 @@ export function createAppState() {
 
     /** Loads (or reloads) the tree from Dropbox. */
     loadTree,
+
+    /** Creates an empty file at path, adds it to the tree and opens it in a
+     * normal Tab. Fails (with an ApiError) if anything is at the path. */
+    async createFile(path: string) {
+      const created = await api.createFile(path);
+      setEntries(withEntry(entries(), createdEntry(created)));
+      await openPath(created.path, { pinned: true });
+    },
+
+    /** Creates a folder at path and shows it in the tree. Fails (with an
+     * ApiError) if anything is at the path. */
+    async createFolder(path: string) {
+      const created = await api.createFolder(path);
+      batch(() => {
+        setEntries(withEntry(entries(), createdEntry(created)));
+        reveal(created.path);
+      });
+    },
+
+    /** Renames or moves a file or folder. Every open Tab and stored Draft
+     * at or under it follows to the new path. Fails (with an ApiError) if the
+     * destination is taken. */
+    async move(from: string, to: string) {
+      const moved = await api.move(from, to);
+      to = moved.path;
+      // The tree's own case for `from`, so the rest of each path keeps its case.
+      from = entries().find((e) => pathKey(e.path) === pathKey(from))?.path ?? from;
+      const follow = (p: string) => movedPath(p, from, to);
+      store.moveDrafts(from, to);
+      batch(() => {
+        const kept = entries().filter((e) => !isUnder(e.path, from));
+        const carried = entries()
+          .filter((e) => isUnder(e.path, from))
+          .map((e) => ({ ...e, path: follow(e.path) }));
+        setEntries(carried.reduce(withEntry, kept));
+        setExpanded(movedKeys(expanded(), from, to));
+        setBinary(movedKeys(binary(), from, to));
+        for (const tab of tabs()) {
+          if (isUnder(tab.path, from)) controls.get(tab)?.moved(follow(tab.path));
+        }
+        const active = activeKey();
+        if (active) setActiveKey(pathKey(follow(active)));
+        const preview = previewKey();
+        if (preview) setPreviewKey(pathKey(follow(preview)));
+        reveal(to);
+      });
+      // Drafts waiting to be written go to the new path now.
+      for (const tab of tabs()) if (isUnder(tab.path, to)) writeDraft(tab);
+      setError(undefined);
+    },
+
+    /** Deletes a file or folder (into Dropbox's trash), closes the Tabs of
+     * the files at or under it and drops their Drafts. The caller has asked
+     * the Owner first. */
+    async remove(path: string) {
+      await api.deleteEntry(path);
+      store.dropDrafts(path);
+      batch(() => {
+        setEntries(entries().filter((e) => !isUnder(e.path, path)));
+        const gone = tabs().filter((t) => isUnder(t.path, path));
+        gone.forEach(cancelDraftWrite);
+        const rest = tabs().filter((t) => !gone.includes(t));
+        if (gone.some((t) => pathKey(t.path) === activeKey())) {
+          // The nearest Tab that's left, as when closing the active Tab.
+          const at = tabs().findIndex(isAt(activeKey()));
+          const next = tabs().slice(at).find((t) => rest.includes(t)) ?? rest[rest.length - 1];
+          setActiveKey(next && pathKey(next.path));
+        }
+        const preview = previewKey();
+        if (preview && isUnder(preview, path)) setPreviewKey(undefined);
+        setTabs(rest);
+      });
+      setError(undefined);
+    },
+
+    /** The open Tabs at or under path that have Drafts. */
+    draftsUnder: (path: string) => tabs().filter((t) => t.modified() && isUnder(t.path, path)),
+
+    /** The folder new files go in by default: the active Tab's. */
+    currentFolder: () => {
+      const tab = activeTab();
+      return tab ? folderOf(tab.path) : "";
+    },
 
     /** Reopens the Tabs that were open when the app was last used in this
      * browser, with their Drafts, and makes the same one active. Tabs whose

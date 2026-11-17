@@ -15,10 +15,6 @@ import (
 	"unicode/utf16"
 )
 
-// errNotYet marks Port operations the real adapter doesn't implement yet
-// (the rest of file management arrives with ticket 10).
-var errNotYet = errors.New("dropbox: not implemented yet")
-
 // errWriteConflict is Dropbox refusing a write because of what is at the
 // path. Each operation turns it into the Port error that fits: a stale
 // revision for an update, something already there for a create or move.
@@ -228,6 +224,9 @@ func apiError(endpoint string, res *http.Response) error {
 			return fmt.Errorf("%w (%v)", ErrNotFile, err)
 		case strings.Contains(summary, "/conflict/"):
 			return fmt.Errorf("%w (%v)", errWriteConflict, err)
+		case strings.HasPrefix(summary, "cant_move_folder_into_itself/"),
+			strings.HasPrefix(summary, "duplicated_or_nested_paths/"):
+			return fmt.Errorf("%w (%v)", ErrInvalidMove, err)
 		}
 	}
 	return err
@@ -411,17 +410,43 @@ func (c *Client) UploadNew(ctx context.Context, path string, content []byte) (En
 	return c.upload(ctx, path, content, map[string]string{".tag": "add"}, ErrAlreadyExists)
 }
 
-// CreateFolder implements Port (not yet: ticket 10).
-func (c *Client) CreateFolder(context.Context, string) (Entry, error) {
-	return Entry{}, errNotYet
+// CreateFolder implements Port with create_folder_v2, which refuses a path
+// that is taken (autorename off) and creates missing parents.
+func (c *Client) CreateFolder(ctx context.Context, path string) (Entry, error) {
+	var res struct{ Metadata metadata }
+	err := c.rpc(ctx, "/2/files/create_folder_v2", map[string]any{"path": path, "autorename": false}, &res)
+	if errors.Is(err, errWriteConflict) {
+		return Entry{}, fmt.Errorf("%w (%v)", ErrAlreadyExists, err)
+	}
+	if err != nil {
+		return Entry{}, err
+	}
+	res.Metadata.Tag = "folder"
+	return res.Metadata.entry(), nil
 }
 
-// Move implements Port (not yet: ticket 10).
-func (c *Client) Move(context.Context, string, string) (Entry, error) {
-	return Entry{}, errNotYet
+// Move implements Port with move_v2, which refuses a taken destination
+// (autorename off) but allows a change of case only.
+func (c *Client) Move(ctx context.Context, from, to string) (Entry, error) {
+	var res struct{ Metadata metadata }
+	err := c.rpc(ctx, "/2/files/move_v2", map[string]any{
+		"from_path":                from,
+		"to_path":                  to,
+		"autorename":               false,
+		"allow_ownership_transfer": false,
+	}, &res)
+	if errors.Is(err, errWriteConflict) {
+		return Entry{}, fmt.Errorf("%w (%v)", ErrAlreadyExists, err)
+	}
+	if err != nil {
+		return Entry{}, err
+	}
+	return res.Metadata.entry(), nil
 }
 
-// Delete implements Port (not yet: ticket 10).
-func (c *Client) Delete(context.Context, string) error {
-	return errNotYet
+// Delete implements Port with delete_v2. Dropbox keeps what it deletes in
+// its trash.
+func (c *Client) Delete(ctx context.Context, path string) error {
+	var res struct{}
+	return c.rpc(ctx, "/2/files/delete_v2", map[string]string{"path": path}, &res)
 }

@@ -72,6 +72,10 @@ func New(o Options) *echo.Echo {
 	api.PUT("/file", fh.save, a.requireSession)
 	api.GET("/file/rev", fh.check, a.requireSession)
 	api.POST("/file/copy", fh.saveCopy, a.requireSession)
+	api.POST("/files", fh.createFile, a.requireSession)
+	api.POST("/folders", fh.createFolder, a.requireSession)
+	api.POST("/move", fh.move, a.requireSession)
+	api.DELETE("/entry", fh.delete, a.requireSession)
 	if o.TestFake != nil {
 		api.PUT("/test/file", changeFakeFile(o.TestFake), a.requireSession)
 		api.DELETE("/test/file", deleteFakeFile(o.TestFake), a.requireSession)

@@ -28,11 +28,15 @@ export type ErrorCode =
   | "too-large"
   | "binary-file"
   | "conflict"
+  | "already-exists"
   | "dropbox-unavailable"
   | "network"
   | (string & {});
 
 export type SavedFile = { path: string; rev: string };
+
+/** Where a created or moved entry is now, in display case. */
+export type ChangedEntry = { path: string; kind: "file" | "folder"; rev?: string };
 
 export class ApiError extends Error {
   constructor(
@@ -77,6 +81,9 @@ async function requestJSON<T>(url: string, init: RequestInit = {}): Promise<T> {
 
 const getJSON = <T>(url: string) => requestJSON<T>(url);
 
+const sendJSON = <T>(url: string, body: unknown, method = "POST") =>
+  requestJSON<T>(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
 export const api = {
   async signedIn(): Promise<boolean> {
     return (await getJSON<{ signedIn: boolean }>("/api/session")).signedIn;
@@ -94,20 +101,30 @@ export const api = {
   /** Saves LF content as a new "conflicted copy" next to the file, leaving
    * the file itself alone. Returns the copy's path and revision. */
   saveCopy(path: string, content: string): Promise<SavedFile> {
-    return requestJSON("/api/file/copy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, content }),
-    });
+    return sendJSON("/api/file/copy", { path, content });
+  },
+  /** Creates an empty file. Fails with "already-exists" if anything is at
+   * the path, in any case. */
+  createFile(path: string): Promise<ChangedEntry> {
+    return sendJSON("/api/files", { path });
+  },
+  /** Creates a folder. Fails with "already-exists" if anything is at the path. */
+  createFolder(path: string): Promise<ChangedEntry> {
+    return sendJSON("/api/folders", { path });
+  },
+  /** Renames or moves a file or folder. Fails with "already-exists" if the
+   * destination is taken; a change of case only is fine. */
+  move(from: string, to: string): Promise<ChangedEntry> {
+    return sendJSON("/api/move", { from, to });
+  },
+  /** Deletes a file or a folder with everything in it, into Dropbox's trash. */
+  async deleteEntry(path: string): Promise<void> {
+    await requestJSON(`/api/entry?path=${encodeURIComponent(path)}`, { method: "DELETE" });
   },
   /** Saves LF content over the revision the file was opened (or last saved)
    * at. The server puts back the file's own line endings. Fails with code
    * "conflict" (and the current revision) if the file changed in Dropbox. */
   saveFile(path: string, content: string, rev: string): Promise<SavedFile> {
-    return requestJSON("/api/file", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, content, rev }),
-    });
+    return sendJSON("/api/file", { path, content, rev }, "PUT");
   },
 };

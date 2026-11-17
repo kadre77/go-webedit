@@ -4,7 +4,7 @@
 // or fails, the store keeps what it's given in memory for this page only, and
 // the app carries on without errors.
 
-import { pathKey } from "./paths";
+import { isUnder, movedPath, pathKey } from "./paths";
 
 /** A Draft as stored: the content, and the revision of the file it was
  * opened (or last saved) at, so saving it still checks for a Save Conflict. */
@@ -24,6 +24,10 @@ export type DraftStore = {
   draft(path: string): Promise<StoredDraft | undefined>;
   saveDraft(path: string, draft: StoredDraft): void;
   dropDraft(path: string): void;
+  /** Moves every Draft at or under `from` to the same place under `to`. */
+  moveDrafts(from: string, to: string): void;
+  /** Drops every Draft at or under path. */
+  dropDrafts(path: string): void;
 };
 
 const dbName = "webedit";
@@ -115,5 +119,45 @@ export function createDraftStore(): DraftStore {
       memory.delete(key);
       void run(draftsStore, "readwrite", (s) => s.delete(key));
     },
+    moveDrafts(from, to) {
+      rewriteDrafts(from, (key) => movedPath(key, pathKey(from), pathKey(to)));
+    },
+    dropDrafts(path) {
+      rewriteDrafts(path, () => undefined);
+    },
   };
+
+  /** Re-keys, or drops when `rekey` gives undefined, every Draft at or under
+   * path, in memory and in one IndexedDB transaction. Drafts are keyed by
+   * path key, so they are found by key range. */
+  function rewriteDrafts(path: string, rekey: (key: string) => string | undefined) {
+    const root = pathKey(path);
+    const moved = [...memory].filter(([key]) => isUnder(key, root));
+    moved.forEach(([key]) => memory.delete(key));
+    for (const [key, draft] of moved) {
+      const next = rekey(key);
+      if (next !== undefined) memory.set(next, draft);
+    }
+    void (async () => {
+      try {
+        if (!opened) await opening;
+        const db = opened?.db;
+        if (!db) return;
+        const store = db.transaction(draftsStore, "readwrite").objectStore(draftsStore);
+        const ranges = [IDBKeyRange.only(root), IDBKeyRange.bound(`${root}/`, `${root}0`, false, true)];
+        const found: [string, StoredDraft][] = [];
+        for (const range of ranges) {
+          const [keys, values] = await Promise.all([requestResult(store.getAllKeys(range)), requestResult(store.getAll(range))]);
+          (keys as string[]).forEach((key, i) => found.push([key, (values as StoredDraft[])[i]]));
+        }
+        for (const [key] of found) store.delete(key);
+        for (const [key, draft] of found) {
+          const next = rekey(key);
+          if (next !== undefined) store.put(draft, next);
+        }
+      } catch (e) {
+        failed(e);
+      }
+    })();
+  }
 }

@@ -56,6 +56,9 @@ func newStubDropbox(t *testing.T) *stubDropbox {
 	mux.HandleFunc("POST /2/files/download", s.authed(s.download))
 	mux.HandleFunc("POST /2/files/upload", s.authed(s.upload))
 	mux.HandleFunc("POST /2/files/get_metadata", s.authed(s.getMetadata))
+	mux.HandleFunc("POST /2/files/create_folder_v2", s.authed(s.createFolder))
+	mux.HandleFunc("POST /2/files/move_v2", s.authed(s.move))
+	mux.HandleFunc("POST /2/files/delete_v2", s.authed(s.delete))
 	s.Server = httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s
@@ -328,6 +331,123 @@ func (s *stubDropbox) upload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 409, map[string]any{"error_summary": "path/conflict/file/.."})
 }
 
+// errorAt answers with a Dropbox endpoint error whose summary is summary.
+func errorAt(w http.ResponseWriter, summary string) {
+	writeJSON(w, 409, map[string]any{"error_summary": summary})
+}
+
+// exists reports whether anything (not deleted) is at p, in any case.
+func (s *stubDropbox) exists(p string) bool {
+	for _, e := range s.allEntries() {
+		if e.Tag != "deleted" && strings.EqualFold(e.PathDisplay, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// under reports whether p is root or inside it, in any case.
+func under(p, root string) bool {
+	return strings.EqualFold(p, root) || strings.HasPrefix(strings.ToLower(p), strings.ToLower(root)+"/")
+}
+
+// createFolder answers like Dropbox's create_folder_v2: it refuses a path
+// that is taken, and wraps the new folder's metadata.
+func (s *stubDropbox) createFolder(w http.ResponseWriter, r *http.Request) {
+	var arg struct {
+		Path       string `json:"path"`
+		Autorename bool   `json:"autorename"`
+	}
+	json.NewDecoder(r.Body).Decode(&arg)
+	if arg.Autorename {
+		s.t.Errorf("create_folder_v2 asked for autorename")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.exists(arg.Path) {
+		errorAt(w, "path/conflict/folder/..")
+		return
+	}
+	s.folders = append(s.folders, arg.Path)
+	writeJSON(w, 200, map[string]any{"metadata": map[string]string{
+		"name": arg.Path[strings.LastIndex(arg.Path, "/")+1:], "path_display": arg.Path, "path_lower": strings.ToLower(arg.Path)}})
+}
+
+// move answers like Dropbox's move_v2: it moves a file or a folder with
+// everything in it, refusing a taken destination (a change of case only is
+// fine) and a folder moved into itself, and wraps the moved entry's
+// metadata (with its tag).
+func (s *stubDropbox) move(w http.ResponseWriter, r *http.Request) {
+	var arg struct {
+		From       string `json:"from_path"`
+		To         string `json:"to_path"`
+		Autorename bool   `json:"autorename"`
+	}
+	json.NewDecoder(r.Body).Decode(&arg)
+	if arg.Autorename {
+		s.t.Errorf("move_v2 asked for autorename")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case !s.exists(arg.From):
+		errorAt(w, "from_lookup/not_found/..")
+		return
+	case !strings.EqualFold(arg.From, arg.To) && under(arg.To, arg.From):
+		errorAt(w, "cant_move_folder_into_itself/..")
+		return
+	case !strings.EqualFold(arg.From, arg.To) && s.exists(arg.To):
+		errorAt(w, "to/conflict/file/..")
+		return
+	}
+	rename := func(p string) string { return arg.To + p[len(arg.From):] }
+	var moved any
+	for i, p := range s.folders {
+		if under(p, arg.From) {
+			s.folders[i] = rename(p)
+			if strings.EqualFold(p, arg.From) {
+				moved = stubEntry{Tag: "folder", Name: arg.To[strings.LastIndex(arg.To, "/")+1:], PathDisplay: arg.To, PathLower: strings.ToLower(arg.To)}
+			}
+		}
+	}
+	for i, f := range s.files {
+		if under(f.path, arg.From) {
+			s.files[i].path = rename(f.path)
+			if strings.EqualFold(f.path, arg.From) {
+				moved = s.files[i].entry()
+			}
+		}
+	}
+	writeJSON(w, 200, map[string]any{"metadata": moved})
+}
+
+// delete answers like Dropbox's delete_v2: it deletes a file or a folder
+// with everything in it.
+func (s *stubDropbox) delete(w http.ResponseWriter, r *http.Request) {
+	var arg struct{ Path string }
+	json.NewDecoder(r.Body).Decode(&arg)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.exists(arg.Path) {
+		errorAt(w, "path_lookup/not_found/..")
+		return
+	}
+	var folders []string
+	for _, p := range s.folders {
+		if !under(p, arg.Path) {
+			folders = append(folders, p)
+		}
+	}
+	var files []stubFile
+	for _, f := range s.files {
+		if !under(f.path, arg.Path) {
+			files = append(files, f)
+		}
+	}
+	s.folders, s.files = folders, files
+	writeJSON(w, 200, map[string]any{"metadata": map[string]string{".tag": "file", "path_display": arg.Path}})
+}
+
 // memTokens is a refresh-token source in memory.
 type memTokens struct {
 	mu  sync.Mutex
@@ -575,6 +695,84 @@ func TestClientUploadsNewFilesOnlyWhereNothingIs(t *testing.T) {
 	}
 	if f, _ := c.Download(ctx, "/Notes/Día.md", noLimit); string(f.Content) != "old\n" {
 		t.Errorf("a refused upload changed the file: %q", f.Content)
+	}
+}
+
+func TestClientCreatesFoldersOnlyWhereNothingIs(t *testing.T) {
+	stub := newStubDropbox(t)
+	stub.folders = []string{"/Notes"}
+	stub.files = []stubFile{{path: "/Notes/Día.md", rev: "0a1", content: []byte("old\n")}}
+	c, _ := signedInClient(t, stub)
+
+	e, err := c.CreateFolder(ctx, "/Notes/Ideas ✓")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Path != "/Notes/Ideas ✓" || !e.Folder {
+		t.Errorf("entry = %+v", e)
+	}
+	if e, err := c.Metadata(ctx, "/notes/ideas ✓"); err != nil || !e.Folder {
+		t.Errorf("after create: %+v, %v", e, err)
+	}
+	for _, p := range []string{"/notes", "/Notes/día.md"} {
+		if _, err := c.CreateFolder(ctx, p); !errors.Is(err, dropbox.ErrAlreadyExists) {
+			t.Errorf("%s: err = %v, want already exists", p, err)
+		}
+	}
+}
+
+func TestClientMovesFilesAndFolders(t *testing.T) {
+	stub := newStubDropbox(t)
+	stub.folders = []string{"/Notes", "/Archive"}
+	stub.files = []stubFile{
+		{path: "/Notes/Día.md", rev: "0a1", content: []byte("día\n")},
+		{path: "/Notes/b.md", rev: "0a2", content: []byte("b\n")},
+		{path: "/Archive/b.md", rev: "0a3", content: []byte("old b\n")},
+	}
+	c, _ := signedInClient(t, stub)
+
+	e, err := c.Move(ctx, "/notes/día.md", "/Notes/Mañana.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Path != "/Notes/Mañana.md" || e.Folder || e.Rev != "0a1" {
+		t.Errorf("file entry = %+v", e)
+	}
+	if e, err := c.Move(ctx, "/Notes", "/Old Notes"); err != nil || e.Path != "/Old Notes" || !e.Folder {
+		t.Errorf("folder: %+v, %v", e, err)
+	}
+	if f, err := c.Download(ctx, "/Old Notes/Mañana.md", noLimit); err != nil || string(f.Content) != "día\n" {
+		t.Errorf("after moves: %q, %v", f.Content, err)
+	}
+
+	if _, err := c.Move(ctx, "/Old Notes/b.md", "/archive/B.md"); !errors.Is(err, dropbox.ErrAlreadyExists) {
+		t.Errorf("onto a file: err = %v, want already exists", err)
+	}
+	if _, err := c.Move(ctx, "/gone.md", "/x.md"); !errors.Is(err, dropbox.ErrNotFound) {
+		t.Errorf("missing: err = %v, want not found", err)
+	}
+	if _, err := c.Move(ctx, "/Archive", "/Archive/Inner"); !errors.Is(err, dropbox.ErrInvalidMove) {
+		t.Errorf("into itself: err = %v, want invalid move", err)
+	}
+}
+
+func TestClientDeletesFilesAndFolders(t *testing.T) {
+	stub := newStubDropbox(t)
+	stub.folders = []string{"/Notes"}
+	stub.files = []stubFile{{path: "/Notes/a.md", rev: "1", content: []byte("a")}, {path: "/keep.md", rev: "2"}}
+	c, _ := signedInClient(t, stub)
+
+	if err := c.Delete(ctx, "/notes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Metadata(ctx, "/Notes/a.md"); !errors.Is(err, dropbox.ErrNotFound) {
+		t.Errorf("after delete: err = %v", err)
+	}
+	if _, err := c.Metadata(ctx, "/keep.md"); err != nil {
+		t.Errorf("deleted too much: %v", err)
+	}
+	if err := c.Delete(ctx, "/Notes"); !errors.Is(err, dropbox.ErrNotFound) {
+		t.Errorf("missing: err = %v, want not found", err)
 	}
 }
 
