@@ -58,6 +58,32 @@ test("a Draft and the open Tabs survive a reload", async ({ page }) => {
   await expect(alert(page)).toHaveCount(0);
 });
 
+test("a Draft typed just before leaving survives, even if the browser drops writes made as the page goes", async ({
+  page,
+}) => {
+  // Browsers may abort IndexedDB writes still in flight when a page is torn
+  // down. Here every write started once the page begins to unload is dropped.
+  await page.addInitScript(() => {
+    addEventListener(
+      "beforeunload",
+      () => {
+        const dropped = () => ({}) as IDBRequest;
+        IDBObjectStore.prototype.put = dropped;
+        IDBObjectStore.prototype.add = dropped;
+      },
+      { capture: true },
+    );
+  });
+  await page.reload();
+  const file = fileFor("leaving");
+  await openFile(page, file);
+  await typeAtEnd(page, ": figs");
+  await reload(page); // at once, before typing has paused long enough to store the Draft
+
+  await expect(tab(page, file)).toHaveAttribute("data-modified", "true");
+  await expect(editor(page)).toHaveText("Shopping list: figs");
+});
+
 /** The file's content and revision as the server has it now. */
 async function stored(page: Page, file: string) {
   const res = await page.request.get(`/api/file?path=${encodeURIComponent(`Drafts/${file}`)}`);

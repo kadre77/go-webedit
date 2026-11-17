@@ -317,9 +317,11 @@ export function createAppState() {
     draftWrites.delete(tab);
   }
 
-  function writeDraft(tab: Tab) {
+  /** Writes the Tab's Draft now; `leaving` as for the draft store. */
+  function writeDraft(tab: Tab, leaving = false) {
     cancelDraftWrite(tab);
-    if (isOpen(tab) && tab.modified()) store.saveDraft(tab.path, { content: tab.doc().toString(), rev: tab.rev() });
+    if (isOpen(tab) && tab.modified())
+      store.saveDraft(tab.path, { content: tab.doc().toString(), rev: tab.rev() }, leaving);
   }
 
   /** Keeps the stored Draft in step with the Tab: written once typing
@@ -711,7 +713,7 @@ export function createAppState() {
     /** Writes every Draft still waiting for typing to pause, now: run when
      * the page is being left or hidden. */
     flushDrafts() {
-      for (const tab of [...draftWrites.keys()]) writeDraft(tab);
+      for (const tab of [...draftWrites.keys()]) writeDraft(tab, true);
     },
 
     toggleFolder(path: string) {
