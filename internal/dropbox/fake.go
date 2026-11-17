@@ -2,8 +2,11 @@ package dropbox
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +22,17 @@ type Fake struct {
 	accountID string
 	nodes     map[string]*node // keyed by lower-case path
 	revs      int
+
+	signInAs string           // the account the authorize step approves
+	grants   map[string]grant // unexchanged authorization codes
+	codes    int
+	revoked  bool
+}
+
+// grant is an authorization code the fake handed out, with what the code
+// exchange must match.
+type grant struct {
+	accountID, challenge, redirectURI string
 }
 
 type node struct {
@@ -31,7 +45,7 @@ type node struct {
 // NewFake returns a fake for the given account, seeded with the files and
 // folders in seed (which may be nil).
 func NewFake(accountID string, seed fs.FS) (*Fake, error) {
-	f := &Fake{accountID: accountID, nodes: map[string]*node{}}
+	f := &Fake{accountID: accountID, signInAs: accountID, nodes: map[string]*node{}, grants: map[string]grant{}}
 	if seed == nil {
 		return f, nil
 	}
@@ -95,6 +109,9 @@ func (n *node) entry() Entry {
 func (f *Fake) ListAll(context.Context) ([]Entry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.revoked {
+		return nil, ErrReauthorize
+	}
 	entries := make([]Entry, 0, len(f.nodes))
 	for _, n := range f.nodes {
 		entries = append(entries, n.entry())
@@ -107,6 +124,9 @@ func (f *Fake) ListAll(context.Context) ([]Entry, error) {
 func (f *Fake) Download(_ context.Context, p string, maxSize int64) (File, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.revoked {
+		return File{}, ErrReauthorize
+	}
 	n, ok := f.nodes[key(p)]
 	switch {
 	case !ok:
@@ -123,6 +143,9 @@ func (f *Fake) Download(_ context.Context, p string, maxSize int64) (File, error
 func (f *Fake) UploadUpdate(_ context.Context, p string, content []byte, rev string) (Entry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.revoked {
+		return Entry{}, ErrReauthorize
+	}
 	n, ok := f.nodes[key(p)]
 	if !ok || n.folder || n.rev != rev {
 		return Entry{}, fmt.Errorf("%w: %s", ErrConflict, p)
@@ -136,6 +159,9 @@ func (f *Fake) UploadUpdate(_ context.Context, p string, content []byte, rev str
 func (f *Fake) UploadNew(_ context.Context, p string, content []byte) (Entry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.revoked {
+		return Entry{}, ErrReauthorize
+	}
 	return f.create(p, &node{content: append([]byte(nil), content...), rev: f.nextRev()})
 }
 
@@ -154,6 +180,9 @@ func (f *Fake) create(p string, n *node) (Entry, error) {
 func (f *Fake) CreateFolder(_ context.Context, p string) (Entry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.revoked {
+		return Entry{}, ErrReauthorize
+	}
 	return f.create(p, &node{folder: true})
 }
 
@@ -172,6 +201,9 @@ func (f *Fake) subtree(k string) []string {
 func (f *Fake) Move(_ context.Context, from, to string) (Entry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.revoked {
+		return Entry{}, ErrReauthorize
+	}
 	fk, tk := key(from), key(to)
 	root, ok := f.nodes[fk]
 	switch {
@@ -208,6 +240,9 @@ func (f *Fake) Move(_ context.Context, from, to string) (Entry, error) {
 func (f *Fake) Delete(_ context.Context, p string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.revoked {
+		return ErrReauthorize
+	}
 	keys := f.subtree(key(p))
 	if len(keys) == 0 {
 		return fmt.Errorf("%w: %s", ErrNotFound, p)
@@ -218,16 +253,46 @@ func (f *Fake) Delete(_ context.Context, p string) error {
 	return nil
 }
 
-// ExchangeCode implements Port: any non-empty code signs in as the fake's
-// account.
-func (f *Fake) ExchangeCode(_ context.Context, code, _, _ string) (Token, error) {
-	if code == "" {
-		return Token{}, ErrBadCode
-	}
-	return Token{RefreshToken: "fake-refresh-token", AccountID: f.accountID}, nil
+// AuthorizeURL implements Port. The fake's authorization page approves at
+// once, as the account set by SignInAs (the fake's own account by default),
+// so the returned URL is the redirect back to redirectURI with a code.
+func (f *Fake) AuthorizeURL(state, codeChallenge, redirectURI string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.codes++
+	code := fmt.Sprintf("fake-code-%d", f.codes)
+	f.grants[code] = grant{accountID: f.signInAs, challenge: codeChallenge, redirectURI: redirectURI}
+	return redirectURI + "?" + url.Values{"code": {code}, "state": {state}}.Encode()
 }
 
-// CurrentAccountID implements Port.
-func (f *Fake) CurrentAccountID(context.Context) (string, error) {
-	return f.accountID, nil
+// ExchangeCode implements Port. Like Dropbox, it checks the PKCE verifier
+// against the challenge and the redirect URI against the authorize request,
+// and each code works once. A successful exchange ends any revocation.
+func (f *Fake) ExchangeCode(_ context.Context, code, codeVerifier, redirectURI string) (Token, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	g, ok := f.grants[code]
+	delete(f.grants, code)
+	sum := sha256.Sum256([]byte(codeVerifier))
+	if !ok || g.redirectURI != redirectURI || base64.RawURLEncoding.EncodeToString(sum[:]) != g.challenge {
+		return Token{}, ErrBadCode
+	}
+	f.revoked = false
+	return Token{RefreshToken: "fake-refresh-token-" + code, AccountID: g.accountID}, nil
+}
+
+// SignInAs makes the authorize step approve as accountID from now on.
+func (f *Fake) SignInAs(accountID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.signInAs = accountID
+}
+
+// Revoke makes Dropbox reject the stored refresh token, as when the Owner
+// revokes the app: file operations fail with ErrReauthorize until the next
+// successful code exchange.
+func (f *Fake) Revoke() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.revoked = true
 }

@@ -11,9 +11,16 @@ import {
 import { createEffect, onCleanup, onMount } from "solid-js";
 import type { OpenedFile } from "./api";
 
+// The server puts a fresh nonce on each app page and allows it in the page's
+// Content-Security-Policy, so CodeMirror's injected <style> element is
+// allowed. It must be in the state the view is created with: the style
+// element is made once, when the first view mounts.
+const cspNonce = document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? "";
+
 // A basic, read-only CodeMirror view of the open file. Editing, themes and
 // languages arrive with the editor tickets.
 const extensions = [
+  EditorView.cspNonce.of(cspNonce),
   lineNumbers(),
   highlightActiveLineGutter(),
   highlightActiveLine(),
@@ -28,7 +35,7 @@ export function Editor(props: { file: OpenedFile }) {
   let view: EditorView | undefined;
 
   onMount(() => {
-    view = new EditorView({ parent: host });
+    view = new EditorView({ state: EditorState.create({ extensions }), parent: host });
     onCleanup(() => view?.destroy());
   });
 

@@ -19,6 +19,9 @@ export type OpenedFile = {
 };
 
 export type ErrorCode =
+  | "unauthorized"
+  | "reauthorize"
+  | "forbidden-origin"
   | "invalid-path"
   | "not-found"
   | "not-a-file"
@@ -38,6 +41,19 @@ export class ApiError extends Error {
   }
 }
 
+/** Why the Owner has to sign in (again): the session ended, or Dropbox no
+ * longer accepts the app's authorization. */
+export type AuthLost = "unauthorized" | "reauthorize";
+
+const isAuthLost = (code: ErrorCode): code is AuthLost => code === "unauthorized" || code === "reauthorize";
+
+let onAuthLost: (why: AuthLost) => void = () => {};
+
+/** Sets what happens when an API call finds the Owner signed out. */
+export function setAuthLostHandler(handler: (why: AuthLost) => void) {
+  onAuthLost = handler;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   let res: Response;
   try {
@@ -47,12 +63,17 @@ async function getJSON<T>(url: string): Promise<T> {
   }
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new ApiError(res.status, body?.code ?? "internal", body?.message ?? res.statusText);
+    const code: ErrorCode = body?.code ?? "internal";
+    if (res.status === 401 && isAuthLost(code)) onAuthLost(code);
+    throw new ApiError(res.status, code, body?.message ?? res.statusText);
   }
   return body as T;
 }
 
 export const api = {
+  async signedIn(): Promise<boolean> {
+    return (await getJSON<{ signedIn: boolean }>("/api/session")).signedIn;
+  },
   async tree(): Promise<TreeEntry[]> {
     return (await getJSON<{ entries: TreeEntry[] }>("/api/tree")).entries;
   },

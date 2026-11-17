@@ -12,7 +12,7 @@ export function Sidebar(props: { state: AppState }) {
 
   return (
     <nav class="sidebar" aria-label="Files">
-      <div role="tree" aria-label="Root Folder">
+      <div class="tree" role="tree" aria-label="Root Folder">
         <For each={ws.visibleRows()}>
           {(node) => (
             <div
@@ -49,6 +49,10 @@ export function Sidebar(props: { state: AppState }) {
           )}
         </For>
       </div>
+      {/* A plain form post: the browser sends the Origin header the server checks. */}
+      <form class="sidebar-footer" method="post" action="/auth/signout">
+        <button type="submit">Sign out</button>
+      </form>
     </nav>
   );
 }

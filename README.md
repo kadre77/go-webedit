@@ -6,7 +6,8 @@ A single-user, Sublime-style web editor for the text files in one Dropbox folder
 
 - `cmd/webedit`: the server binary
 - `internal/config`: environment configuration, validated at startup
-- `internal/dropbox`: the Dropbox port (one interface for all Dropbox access) and the in-memory fake used by tests and test mode
+- `internal/dropbox`: the Dropbox port (one interface for all Dropbox access), the real adapter over the Dropbox HTTP API, and the in-memory fake used by tests and test mode
+- `internal/tokenstore`: the Owner's refresh token, encrypted in the data directory
 - `internal/server`: the Echo server (JSON API under `/api`, the Solid app everywhere else)
 - `web/`: the SolidJS frontend (Vite, TypeScript, pnpm); `web/embed.go` embeds `web/dist` into the binary
 
@@ -37,9 +38,16 @@ All configuration is environment variables. The server refuses to start, naming 
 | `WEBEDIT_BASE_URL`           | Public base URL, scheme and host only (e.g. `https://edit.example.com`)                       |
 | `WEBEDIT_SESSION_SECRET`     | Session-signing secret, at least 32 characters; rotating it signs out every device            |
 | `WEBEDIT_TOKEN_KEY`          | Refresh-token encryption key: 32 random bytes, standard base64 (`openssl rand -base64 32`)    |
-| `WEBEDIT_DATA_DIR`           | Absolute path of the data directory (the Dokku storage mount)                                 |
+| `WEBEDIT_DATA_DIR`           | Absolute path of the data directory (the Dokku storage mount); holds the encrypted `refresh-token` |
 | `PORT`                       | Listen port (default `8080`; the image sets `5000`)                                           |
 | `WEBEDIT_TEST_MODE`          | `1`/`true` turns on test mode (for Playwright). Refused with an `https` non-loopback base URL |
 | `WEBEDIT_TEST_FIXTURES`      | Test mode only: a directory whose contents seed the fake Dropbox (Playwright uses `web/e2e/fixtures` via `web/e2e/serve.sh`) |
 
 Health check: `GET /api/health`.
+
+## Signing in
+
+The Owner signs in with Dropbox at `/auth/signin`. Register `<WEBEDIT_BASE_URL>/auth/callback` as the Dropbox app's redirect URI. Only `WEBEDIT_OWNER_ACCOUNT_ID` is accepted. In test mode, sign-in approves at once as that account through the fake Dropbox, so Playwright tests start at `/auth/signin`.
+
+- Rotating `WEBEDIT_SESSION_SECRET` signs out every device.
+- Changing `WEBEDIT_TOKEN_KEY` stops startup while the old `refresh-token` file is there: restore the key, or delete the file and sign in again.

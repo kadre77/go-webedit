@@ -7,16 +7,20 @@ package main_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kadre77/webedit/internal/tokenstore"
 )
 
 var binary string
@@ -209,7 +213,41 @@ func TestTestModeRefusesProductionBaseURL(t *testing.T) {
 	}
 }
 
-func TestTestModeServesTheFixtureDirectory(t *testing.T) {
+// signIn runs the test-mode sign-in (which approves at once) against base
+// and returns the session cookie.
+func signIn(t *testing.T, base string) *http.Cookie {
+	t.Helper()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	res, err := client.Get(base + "/auth/signin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	loc, err := url.Parse(res.Header.Get("Location"))
+	if err != nil || loc.Path != "/auth/callback" {
+		t.Fatalf("sign-in start redirects to %q, want the callback", res.Header.Get("Location"))
+	}
+	req, _ := http.NewRequest(http.MethodGet, base+loc.RequestURI(), nil)
+	for _, c := range res.Cookies() {
+		req.AddCookie(c)
+	}
+	res, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	for _, c := range res.Cookies() {
+		if c.Name == "webedit_session" && c.MaxAge > 0 {
+			return c
+		}
+	}
+	t.Fatalf("no session after sign-in; callback status %d, Location %q", res.StatusCode, res.Header.Get("Location"))
+	return nil
+}
+
+func TestTestModeSignsInAtOnceAndServesTheFixtureDirectory(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "Notes"), 0o755); err != nil {
 		t.Fatal(err)
@@ -219,9 +257,12 @@ func TestTestModeServesTheFixtureDirectory(t *testing.T) {
 	}
 	env := testModeEnv()
 	env["WEBEDIT_TEST_FIXTURES"] = dir
+	env["WEBEDIT_DATA_DIR"] = t.TempDir()
 	base := serve(t, env)
 
-	res, err := http.Get(base + "/api/file?path=Notes/Fixture.md")
+	req, _ := http.NewRequest(http.MethodGet, base+"/api/file?path=Notes/Fixture.md", nil)
+	req.AddCookie(signIn(t, base))
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,6 +270,38 @@ func TestTestModeServesTheFixtureDirectory(t *testing.T) {
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), `"content":"# hi\n"`) {
 		t.Errorf("status = %d, body %s", res.StatusCode, body)
+	}
+}
+
+func TestSigningInStoresTheRefreshTokenEncrypted(t *testing.T) {
+	env := testModeEnv()
+	dataDir := t.TempDir()
+	env["WEBEDIT_DATA_DIR"] = dataDir
+	signIn(t, serve(t, env))
+
+	key, _ := base64.StdEncoding.DecodeString(env["WEBEDIT_TOKEN_KEY"])
+	s, err := tokenstore.Open(filepath.Join(dataDir, "refresh-token"), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok, err := s.RefreshToken(); err != nil || tok == "" {
+		t.Errorf("stored token = %q, %v", tok, err)
+	}
+}
+
+func TestAWrongTokenKeyStopsStartup(t *testing.T) {
+	dataDir := t.TempDir()
+	s, err := tokenstore.Open(filepath.Join(dataDir, "refresh-token"), bytes.Repeat([]byte{9}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save("a-refresh-token"); err != nil {
+		t.Fatal(err)
+	}
+	env := productionEnv() // its key is 32 zero bytes
+	env["WEBEDIT_DATA_DIR"] = dataDir
+	if stderr := refusesToStart(t, env); !strings.Contains(stderr, "WEBEDIT_TOKEN_KEY") {
+		t.Errorf("stderr does not name WEBEDIT_TOKEN_KEY:\n%s", stderr)
 	}
 }
 

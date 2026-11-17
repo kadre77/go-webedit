@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"net/url"
 	"testing"
 	"testing/fstest"
 
@@ -251,17 +252,97 @@ func TestFakeDeleteRemovesFoldersRecursively(t *testing.T) {
 	}
 }
 
-func TestFakeSignsInAsItsAccount(t *testing.T) {
+// authorize plays the browser: it follows the fake's authorize URL, which
+// approves at once, and returns the code and state Dropbox would send to the
+// redirect URI.
+func authorize(t *testing.T, fake *dropbox.Fake, state, challenge, redirectURI string) (code, gotState string) {
+	t.Helper()
+	u, err := url.Parse(fake.AuthorizeURL(state, challenge, redirectURI))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Scheme + "://" + u.Host + u.Path; got != redirectURI {
+		t.Fatalf("authorize redirects to %s, want %s", got, redirectURI)
+	}
+	return u.Query().Get("code"), u.Query().Get("state")
+}
+
+const (
+	verifier    = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	challenge   = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" // RFC 7636 appendix B
+	redirectURI = "http://localhost/auth/callback"
+)
+
+func TestFakeSignsInAsItsAccountWithPKCE(t *testing.T) {
 	fake := seeded(t)
-	tok, err := fake.ExchangeCode(ctx, "code", "verifier", "http://localhost/cb")
+	code, state := authorize(t, fake, "st", challenge, redirectURI)
+	if state != "st" || code == "" {
+		t.Fatalf("code %q, state %q", code, state)
+	}
+	tok, err := fake.ExchangeCode(ctx, code, verifier, redirectURI)
 	if err != nil || tok.AccountID != "dbid:owner" || tok.RefreshToken == "" {
 		t.Errorf("token = %+v, %v", tok, err)
 	}
-	if _, err := fake.ExchangeCode(ctx, "", "verifier", "http://localhost/cb"); !errors.Is(err, dropbox.ErrBadCode) {
-		t.Errorf("empty code: err = %v", err)
+}
+
+func TestFakeRefusesBadCodeExchanges(t *testing.T) {
+	fake := seeded(t)
+	cases := map[string]func() (string, string, string){
+		"wrong verifier": func() (string, string, string) {
+			code, _ := authorize(t, fake, "st", challenge, redirectURI)
+			return code, "not-the-verifier-not-the-verifier-not-the-ver", redirectURI
+		},
+		"other redirect URI": func() (string, string, string) {
+			code, _ := authorize(t, fake, "st", challenge, redirectURI)
+			return code, verifier, "http://evil.example/cb"
+		},
+		"unknown code": func() (string, string, string) { return "made-up", verifier, redirectURI },
+		"empty code":   func() (string, string, string) { return "", verifier, redirectURI },
 	}
-	if id, err := fake.CurrentAccountID(ctx); err != nil || id != "dbid:owner" {
-		t.Errorf("account = %q, %v", id, err)
+	for name, c := range cases {
+		code, v, r := c()
+		if _, err := fake.ExchangeCode(ctx, code, v, r); !errors.Is(err, dropbox.ErrBadCode) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
+func TestFakeCodesWorkOnce(t *testing.T) {
+	fake := seeded(t)
+	code, _ := authorize(t, fake, "st", challenge, redirectURI)
+	if _, err := fake.ExchangeCode(ctx, code, verifier, redirectURI); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fake.ExchangeCode(ctx, code, verifier, redirectURI); !errors.Is(err, dropbox.ErrBadCode) {
+		t.Errorf("second use: err = %v", err)
+	}
+}
+
+func TestFakeCanSignInAsAnotherAccount(t *testing.T) {
+	fake := seeded(t)
+	fake.SignInAs("dbid:stranger")
+	code, _ := authorize(t, fake, "st", challenge, redirectURI)
+	tok, err := fake.ExchangeCode(ctx, code, verifier, redirectURI)
+	if err != nil || tok.AccountID != "dbid:stranger" {
+		t.Errorf("token = %+v, %v", tok, err)
+	}
+}
+
+func TestFakeRevokedAuthorizationNeedsSigningInAgain(t *testing.T) {
+	fake := seeded(t)
+	fake.Revoke()
+	if _, err := fake.ListAll(ctx); !errors.Is(err, dropbox.ErrReauthorize) {
+		t.Errorf("list: err = %v", err)
+	}
+	if _, err := fake.Download(ctx, "/readme.md", noLimit); !errors.Is(err, dropbox.ErrReauthorize) {
+		t.Errorf("download: err = %v", err)
+	}
+	code, _ := authorize(t, fake, "st", challenge, redirectURI)
+	if _, err := fake.ExchangeCode(ctx, code, verifier, redirectURI); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fake.ListAll(ctx); err != nil {
+		t.Errorf("after signing in again: err = %v", err)
 	}
 }
 

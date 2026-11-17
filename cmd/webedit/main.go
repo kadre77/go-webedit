@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/kadre77/webedit/internal/config"
 	"github.com/kadre77/webedit/internal/dropbox"
 	"github.com/kadre77/webedit/internal/server"
+	"github.com/kadre77/webedit/internal/tokenstore"
 	"github.com/kadre77/webedit/web"
 )
 
@@ -31,7 +33,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	var port dropbox.Port = dropbox.NotConnected{}
+	tokens, err := tokenstore.Open(filepath.Join(cfg.DataDir, "refresh-token"), cfg.TokenKey)
+	if errors.Is(err, tokenstore.ErrWrongKey) {
+		return fmt.Errorf("WEBEDIT_TOKEN_KEY: %w; restore the old key, or delete the file and sign in again", err)
+	}
+	if err != nil {
+		return err
+	}
+
+	var port dropbox.Port = dropbox.NewClient(cfg.DropboxAppKey, cfg.DropboxAppSecret, tokens)
 	if cfg.TestMode {
 		slog.Warn("TEST MODE is on; never use this in production")
 		var seed fs.FS
@@ -44,8 +54,15 @@ func run() error {
 	}
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           server.New(web.Dist(), port),
+		Addr: ":" + cfg.Port,
+		Handler: server.New(server.Options{
+			Frontend:       web.Dist(),
+			Dropbox:        port,
+			Tokens:         tokens,
+			OwnerAccountID: cfg.OwnerAccountID,
+			BaseURL:        cfg.BaseURL,
+			SessionSecret:  cfg.SessionSecret,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

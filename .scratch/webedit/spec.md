@@ -129,7 +129,7 @@ A single-user web app on a public VPS (deployed with Dokku from a Dockerfile). T
 
 - The server uses the Dropbox HTTP API, never a locally synced folder.
 - The Dropbox app is registered with App Folder access, so the Root Folder is the App Folder. Scopes are limited to `account_info.read`, `files.metadata.read`, `files.content.read` and `files.content.write`.
-- All Dropbox access sits behind one Go interface, the Dropbox port. It covers: OAuth code exchange (with PKCE) and token refresh, getting the current account ID, recursive folder listing, downloading a file with its revision, uploading with an "update only if revision matches" mode, uploading a new file that must not exist, creating a folder, moving/renaming, and deleting. A real adapter calls Dropbox. An in-memory fake implements the same interface for tests and for the test mode (see Testing Decisions).
+- All Dropbox access sits behind one Go interface, the Dropbox port. It covers: the authorization URL and OAuth code exchange (with PKCE; the exchange returns the refresh token and the approving account ID), token refresh, recursive folder listing, downloading a file with its revision, uploading with an "update only if revision matches" mode, uploading a new file that must not exist, creating a folder, moving/renaming, and deleting. A real adapter calls Dropbox. An in-memory fake implements the same interface for tests and for the test mode (see Testing Decisions).
 - The fake must behave like Dropbox where it matters: revisions change on every write, conditional uploads fail with a conflict when the revision doesn't match, paths are case-insensitive but keep their display case, and moves into an existing path fail.
 - Dropbox paths are case-insensitive. The server cleans every client-supplied path (rejecting `..` segments, empty segments, control characters, and anything that resolves outside the Root Folder) before it reaches the Dropbox port. Segments that would still become `.`, `..` or contain a separator after further percent-decoding are rejected too, so a file literally named like `%2e%2e` or `a%2fb` can't be opened: a deliberate trade for defence against a layer that decodes again. If ADR 0003's fallback to Full Dropbox is ever used, the Root Folder prefix check must compare case-insensitively.
 - The refresh token is encrypted with an authenticated cipher keyed by the token-encryption key and stored as a file in the data directory. Access tokens live only in memory and are refreshed when they expire.
@@ -138,7 +138,7 @@ A single-user web app on a public VPS (deployed with Dokku from a Dockerfile). T
 ### Sign-in and sessions (ADR 0002)
 
 - Sign-in is the Dropbox OAuth authorization-code flow with PKCE and a `state` value bound to the browser in a short-lived cookie.
-- After the code exchange the server asks Dropbox for the account ID and compares it with the configured Owner account ID. Any other account is refused, and its token is not stored.
+- The code exchange returns the approving account ID from Dropbox, and the server compares it with the configured Owner account ID. Any other account is refused, and its token is not stored.
 - On success the server stores the refresh token (replacing any earlier one) and issues a session cookie: signed, `HttpOnly`, `Secure`, `SameSite=Lax`, valid for 30 days. The session holds only the account ID and an expiry. Rotating the session secret invalidates every session.
 - Sign-out clears the cookie.
 - Every `/api` route except the health check and the OAuth start/callback requires a valid session. Unauthenticated API calls return 401, and the frontend redirects to sign-in.
@@ -147,7 +147,7 @@ A single-user web app on a public VPS (deployed with Dokku from a Dockerfile). T
 
 ### Security headers and logging
 
-- Responses set a strict Content-Security-Policy (`default-src 'self'`, no inline script, no `eval`), HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `frame-ancestors 'none'`.
+- Responses set a strict Content-Security-Policy (`default-src 'self'`, no inline script, no `eval`; the app page carries a fresh nonce that allows CodeMirror's injected `<style>` element and nothing else, and is never cached), HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `frame-ancestors 'none'`.
 - Request logging never records cookies, authorization headers, OAuth codes or tokens.
 
 ### API contract (JSON under `/api`)
@@ -162,7 +162,7 @@ Shapes, not exact names:
 - **Create file / create folder:** fail if something already exists at the path.
 - **Move:** renames or moves a file or folder, and fails if the destination exists.
 - **Delete:** deletes a file or folder. Dropbox keeps deleted items in its trash.
-- **Session:** returns whether the caller is signed in. Sign-in start, OAuth callback and sign-out are plain browser routes, not JSON.
+- **Session:** returns whether the caller is signed in. Sign-in start (`GET /auth/signin`), OAuth callback (`GET /auth/callback`, the redirect URI registered with Dropbox) and sign-out (`POST /auth/signout`) are plain browser routes, not JSON. They end on the app's `/signin?reason=...` page when sign-in fails or after sign-out.
 - Errors use one JSON shape with a machine-readable code and a human message. The codes are: unauthorized, reauthorize, forbidden-origin, invalid-path, not-found, not-a-file (a folder where a file was expected), already-exists, conflict, binary-file, too-large, dropbox-unavailable. A new code is added to this list when it is introduced.
 
 ### Line endings and encoding

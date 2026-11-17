@@ -5,9 +5,12 @@ package server
 import (
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -16,50 +19,95 @@ import (
 
 const indexPage = "index.html"
 
-// New returns the server's HTTP handler. frontend holds the built Solid app,
-// with index.html at its root.
-func New(frontend fs.FS, port dropbox.Port) *echo.Echo {
+// Options configure the server.
+type Options struct {
+	Frontend       fs.FS // the built Solid app, with index.html at its root
+	Dropbox        dropbox.Port
+	Tokens         TokenSaver // where sign-in stores the refresh token
+	OwnerAccountID string     // the only Dropbox account allowed to sign in
+	BaseURL        *url.URL   // public base URL, scheme and host only
+	SessionSecret  []byte
+	Now            func() time.Time // defaults to time.Now
+	Logger         *slog.Logger     // defaults to slog.Default()
+}
+
+// New returns the server's HTTP handler.
+func New(o Options) *echo.Echo {
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	if o.Logger == nil {
+		o.Logger = slog.Default()
+	}
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
-	e.HTTPErrorHandler = handleError
+	e.HTTPErrorHandler = errorHandler(o.Logger)
+	e.Use(logRequests(o.Logger), securityHeaders, requireOrigin(o.BaseURL.String()))
+
+	a := &auth{
+		port:    o.Dropbox,
+		tokens:  o.Tokens,
+		owner:   o.OwnerAccountID,
+		baseURL: o.BaseURL,
+		sign:    signer{secret: o.SessionSecret},
+		now:     o.Now,
+		log:     o.Logger,
+	}
+	e.GET("/auth/signin", a.start)
+	e.GET(callbackPath, a.callback)
+	e.POST("/auth/signout", a.signOut)
 
 	api := e.Group("/api")
 	api.GET("/health", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
-	fh := &fileHandlers{port: port}
-	api.GET("/tree", fh.tree)
-	api.GET("/file", fh.open)
+	api.GET("/session", a.session)
+	fh := &fileHandlers{port: o.Dropbox}
+	api.GET("/tree", fh.tree, a.requireSession)
+	api.GET("/file", fh.open, a.requireSession)
 	notFound := func(echo.Context) error { return echo.ErrNotFound }
 	e.Any("/api", notFound)
 	api.Any("/*", notFound)
 
-	e.GET("/*", serveApp(frontend))
+	e.GET("/*", serveApp(o.Frontend))
 	return e
 }
 
-// serveApp serves files from the frontend build, and index.html for any other
-// path so the Solid app can route on the client. Missing files under
+// serveApp serves files from the frontend build, and the app page for any
+// other path so the Solid app can route on the client. Missing files under
 // /assets/ are 404s instead: a stale hashed bundle must not come back as HTML.
 func serveApp(frontend fs.FS) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		name := strings.TrimPrefix(path.Clean("/"+c.Request().URL.Path), "/")
-		if name != "" {
+		if name != "" && name != indexPage {
 			if fi, err := fs.Stat(frontend, name); err == nil && fi.Mode().IsRegular() {
-				return serveFile(c, frontend, name)
+				http.ServeFileFS(c.Response(), c.Request(), frontend, name)
+				return nil
 			}
 			if strings.HasPrefix(name, "assets/") {
 				return echo.ErrNotFound
 			}
 		}
-		return serveFile(c, frontend, indexPage)
+		return serveIndex(c, frontend)
 	}
 }
 
-func serveFile(c echo.Context, fsys fs.FS, name string) error {
-	http.ServeFileFS(c.Response(), c.Request(), fsys, name)
-	return nil
+// serveIndex serves index.html with a fresh CSP nonce, in a meta tag for the
+// editor and in the page's Content-Security-Policy. The page is never
+// cached, so a nonce is never reused.
+func serveIndex(c echo.Context, frontend fs.FS) error {
+	page, err := fs.ReadFile(frontend, indexPage)
+	if err != nil {
+		return err
+	}
+	nonce := randomToken()
+	meta := `<meta name="csp-nonce" content="` + nonce + `">`
+	html := strings.Replace(string(page), "</head>", meta+"</head>", 1)
+	h := c.Response().Header()
+	h.Set("Content-Security-Policy", contentSecurityPolicy(nonce))
+	h.Set("Cache-Control", "no-store")
+	return c.HTML(http.StatusOK, html)
 }
 
 // apiError is the one JSON error shape the API uses.
@@ -74,7 +122,11 @@ var errorCodes = map[int]string{
 	http.StatusMethodNotAllowed: "method-not-allowed",
 }
 
-func handleError(err error, c echo.Context) {
+func errorHandler(log *slog.Logger) echo.HTTPErrorHandler {
+	return func(err error, c echo.Context) { handleError(log, err, c) }
+}
+
+func handleError(log *slog.Logger, err error, c echo.Context) {
 	if c.Response().Committed {
 		return
 	}
@@ -83,9 +135,9 @@ func handleError(err error, c echo.Context) {
 	var he *echo.HTTPError
 	if errors.As(err, &ae) {
 		if ae.Err != nil {
-			c.Logger().Error(ae.Err)
+			log.Error("request failed", "code", ae.Code, "err", ae.Err)
 		}
-		writeError(c, ae.Status, ae.Code, ae.Message)
+		writeError(log, c, ae.Status, ae.Code, ae.Message)
 		return
 	}
 	if errors.As(err, &he) {
@@ -94,7 +146,7 @@ func handleError(err error, c echo.Context) {
 			message = m
 		}
 	} else {
-		c.Logger().Error(err)
+		log.Error("request failed", "err", err)
 	}
 	code, ok := errorCodes[status]
 	if !ok {
@@ -103,10 +155,10 @@ func handleError(err error, c echo.Context) {
 			code = "bad-request"
 		}
 	}
-	writeError(c, status, code, message)
+	writeError(log, c, status, code, message)
 }
 
-func writeError(c echo.Context, status int, code, message string) {
+func writeError(log *slog.Logger, c echo.Context, status int, code, message string) {
 	var err error
 	if c.Request().Method == http.MethodHead {
 		err = c.NoContent(status)
@@ -114,7 +166,7 @@ func writeError(c echo.Context, status int, code, message string) {
 		err = c.JSON(status, apiError{Code: code, Message: message})
 	}
 	if err != nil {
-		c.Logger().Error(err)
+		log.Error("writing error response", "err", err)
 	}
 }
 

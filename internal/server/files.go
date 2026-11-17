@@ -55,6 +55,8 @@ func (h *fileHandlers) tree(c echo.Context) error {
 // dropboxError turns a Dropbox port error into an API error.
 func dropboxError(err error) error {
 	switch {
+	case errors.Is(err, dropbox.ErrReauthorize):
+		return &Error{Status: http.StatusUnauthorized, Code: "reauthorize", Message: "Dropbox no longer accepts this app's authorization. Sign in again.", Err: err}
 	case errors.Is(err, dropbox.ErrNotFound):
 		return &Error{Status: http.StatusNotFound, Code: "not-found", Message: "No such file or folder."}
 	case errors.Is(err, dropbox.ErrTooLarge):

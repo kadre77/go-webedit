@@ -22,6 +22,10 @@ var (
 	ErrTooLarge      = errors.New("dropbox: file is over the size limit")
 	ErrInvalidMove   = errors.New("dropbox: invalid move")
 	ErrBadCode       = errors.New("dropbox: authorization code rejected")
+	// ErrReauthorize means Dropbox no longer accepts the stored refresh
+	// token (revoked or expired), or there is none: the Owner must sign in
+	// again.
+	ErrReauthorize = errors.New("dropbox: authorization revoked or missing")
 )
 
 // Entry is one file or folder.
@@ -46,12 +50,19 @@ type Token struct {
 
 // Port is everything the app needs from Dropbox.
 type Port interface {
+	// AuthorizeURL is where the browser goes to approve the app: Dropbox's
+	// authorization page for the code flow with PKCE (S256 challenge),
+	// asking for a refresh token. Dropbox then redirects to redirectURI with
+	// a code and the state.
+	AuthorizeURL(state, codeChallenge, redirectURI string) string
 	// ExchangeCode trades an OAuth authorization code (with its PKCE
-	// verifier) for a refresh token. Access-token refresh happens inside the
-	// implementation.
+	// verifier) for a refresh token and the ID of the account that approved
+	// it. It fails with ErrBadCode if Dropbox refuses the code.
 	ExchangeCode(ctx context.Context, code, codeVerifier, redirectURI string) (Token, error)
-	// CurrentAccountID returns the signed-in Dropbox account's ID.
-	CurrentAccountID(ctx context.Context) (string, error)
+
+	// The file operations below use the stored refresh token (access tokens
+	// are refreshed inside the implementation) and fail with ErrReauthorize
+	// when Dropbox no longer accepts it.
 
 	// ListAll lists every entry under the Root Folder, recursively.
 	ListAll(ctx context.Context) ([]Entry, error)

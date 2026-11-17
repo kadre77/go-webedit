@@ -9,7 +9,8 @@ const item = (page: Page, name: string) =>
 const editor = (page: Page) => page.locator(".cm-content");
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/");
+  // Test mode signs in at once as the Owner and lands on the app.
+  await page.goto("/auth/signin");
 });
 
 test("the sidebar shows the Root Folder with folders collapsed", async ({ page }) => {
