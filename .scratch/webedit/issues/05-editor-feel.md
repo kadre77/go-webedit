@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Browse the Root Folder read-only)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] CodeMirror 6 theme matching Sublime's Mariana dark colours for the editor chrome and syntax tokens, with Markdown tokens styled with care
 - [x] Language picked from the file extension and loaded lazily for Markdown, JS/TS, JSON, HTML/CSS, Go, Python, YAML, Shell and SQL; anything else opens as plain text

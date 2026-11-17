@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Monorepo with a Go backend (Echo) and a SolidJS frontend (Vite, TypeScript, pnpm); the built frontend is embedded in the Go binary and served at `/`
 - [x] Health-check endpoint responds without a session

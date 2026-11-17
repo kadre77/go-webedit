@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Walking skeleton)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] A Go Dropbox port interface covering the operations listed in the spec; the in-memory fake implements all of it
 - [x] The fake has its own tests: the revision changes on every write, conditional uploads conflict on a revision mismatch, paths are case-insensitive but keep their display case, and create/move onto an existing path fails

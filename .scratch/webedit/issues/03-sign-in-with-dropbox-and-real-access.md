@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Browse the Root Folder read-only)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Dropbox OAuth authorization-code flow with PKCE and a `state` value bound to a short-lived cookie; a mismatched or missing state is refused
 - [x] After the code exchange, only the configured Owner account ID is accepted; other accounts are refused and their tokens are never stored

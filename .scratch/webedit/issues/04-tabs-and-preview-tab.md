@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Browse the Root Folder read-only)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] App state tracks open Tabs, the active Tab and which Tab (if any) is the Preview Tab
 - [x] Single click opens a file in the Preview Tab, replacing any existing Preview Tab; opening a file that is already open just activates its Tab
