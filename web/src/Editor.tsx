@@ -1,15 +1,26 @@
+import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { EditorState, type StateEffect, Transaction } from "@codemirror/state";
+import { bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
+import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import { Compartment, EditorState, type StateEffect, Transaction } from "@codemirror/state";
 import {
+  crosshairCursor,
   drawSelection,
+  dropCursor,
   EditorView,
   highlightActiveLine,
   highlightActiveLineGutter,
+  highlightSpecialChars,
   keymap,
   lineNumbers,
+  rectangularSelection,
 } from "@codemirror/view";
 import { createEffect, on, onCleanup, onMount } from "solid-js";
 import type { Tab } from "./appState";
+import { detectIndentUnit } from "./indentation";
+import { languageFor } from "./languages";
+import { mariana } from "./mariana";
+import { sublimeKeymap } from "./sublimeKeymap";
 
 // The server puts a fresh nonce on each app page and allows it in the page's
 // Content-Security-Policy, so CodeMirror's injected <style> element is
@@ -17,18 +28,31 @@ import type { Tab } from "./appState";
 // element is made once, when the first view mounts.
 const cspNonce = document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? "";
 
-// A basic CodeMirror setup. Themes, languages and the Sublime keymap arrive
-// with the editor-feel ticket.
 const baseExtensions = [
   EditorView.cspNonce.of(cspNonce),
   lineNumbers(),
   highlightActiveLineGutter(),
   highlightActiveLine(),
+  highlightSpecialChars(),
+  foldGutter(),
   drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  rectangularSelection(),
+  crosshairCursor(),
   history(),
-  keymap.of([...defaultKeymap, ...historyKeymap]),
-  EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { fontFamily: "var(--mono)" } }, { dark: true }),
+  indentOnInput(),
+  bracketMatching(),
+  closeBrackets(),
+  highlightSelectionMatches(),
+  search({ top: true }),
+  // Earlier bindings win, so Sublime's take precedence over CodeMirror's.
+  keymap.of([...closeBracketsKeymap, ...sublimeKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, ...defaultKeymap]),
+  mariana,
 ];
+
+// Each Tab's state holds its file's language here, filled in once loaded.
+const language = new Compartment();
 
 /** What a Tab's editor looked like when it was last shown. */
 type Snapshot = { state: EditorState; scroll: StateEffect<unknown> };
@@ -49,6 +73,25 @@ export function Editor(props: { tab: Tab; onEdit: (tab: Tab) => void }) {
     }),
   ];
 
+  /** A new Tab's editor state, with its language if that's already loaded. */
+  const createState = (tab: Tab) => {
+    const lang = languageFor(tab.path);
+    if (lang && !lang.ready) {
+      lang.load().then((support) => {
+        const effects = language.reconfigure(support);
+        if (shown === tab) view.dispatch({ effects, annotations: Transaction.addToHistory.of(false) });
+        else {
+          const saved = snapshots.get(tab);
+          if (saved) snapshots.set(tab, { ...saved, state: saved.state.update({ effects }).state });
+        }
+      }, (err) => console.warn(`Couldn't load highlighting for ${tab.path}; showing plain text.`, err));
+    }
+    return EditorState.create({
+      doc: tab.file.content,
+      extensions: [extensions, indentUnit.of(detectIndentUnit(tab.file.content)), language.of(lang?.ready ?? [])],
+    });
+  };
+
   onMount(() => {
     // Created with the base extensions, so the CSP nonce is there when the
     // style element is made.
@@ -66,7 +109,7 @@ export function Editor(props: { tab: Tab; onEdit: (tab: Tab) => void }) {
           // leaves Android input at the outgoing Tab's cursor position, so the
           // selection is dispatched again to resync it with the DOM.
           const hadFocus = view.hasFocus;
-          view.setState(saved?.state ?? EditorState.create({ doc: tab.file.content, extensions }));
+          view.setState(saved?.state ?? createState(tab));
           view.dispatch({
             selection: view.state.selection,
             effects: saved?.scroll,
