@@ -1,8 +1,9 @@
 // App state: the tree, which folders are expanded, which files turned
-// out to be binary this session, and the open Tabs (which one is active, and
-// which one, if any, is the Preview Tab).
+// out to be binary this session, and the open Tabs (which one is active,
+// which one, if any, is the Preview Tab, and each one's Draft and revision).
 
-import { batch, createEffect, createMemo, createSignal, on } from "solid-js";
+import { Text } from "@codemirror/state";
+import { type Accessor, batch, createEffect, createMemo, createSignal, on } from "solid-js";
 import { api, ApiError, type OpenedFile, type TreeEntry } from "./api";
 
 /** Dropbox paths are case-insensitive: compare and key paths through this. */
@@ -57,13 +58,65 @@ function buildTree(entries: TreeEntry[], binary: ReadonlySet<string>): TreeNode[
   return root;
 }
 
-/** An open Text File. Until Drafts get their own store, its edits live only
- * in the editor's state for the Tab (see Editor), which is keyed by this
- * object: a reopened file is a new Tab. */
+/** An open Text File. The editor keeps each Tab's editor state (cursor,
+ * undo history) keyed by this object, so a reopened file is a new Tab. */
 export type Tab = {
   readonly path: string;
+  /** The file as it was opened. */
   readonly file: OpenedFile;
+  /** The editor's content: the Draft, when it differs from what's saved. */
+  readonly doc: Accessor<Text>;
+  /** The Dropbox revision of the content last opened or saved. */
+  readonly rev: Accessor<string>;
+  /** Whether the Tab has a Draft. */
+  readonly modified: Accessor<boolean>;
 };
+
+/** What the app state, but nothing else, can do to a Tab. */
+type TabControls = {
+  edit(doc: Text): void;
+  saved(doc: Text, rev: string): void;
+};
+
+const sameText = (a: Text, b: Text) => a === b || (a.length === b.length && a.eq(b));
+
+function createTab(file: OpenedFile): [Tab, TabControls] {
+  const opened = Text.of(file.content.split("\n"));
+  const [doc, setDoc] = createSignal(opened);
+  const [saved, setSaved] = createSignal({ doc: opened, rev: file.rev });
+  const [modified, setModified] = createSignal(false);
+  const tab: Tab = { path: file.path, file, doc, rev: () => saved().rev, modified };
+  return [
+    tab,
+    {
+      edit(next) {
+        batch(() => {
+          setDoc(next);
+          setModified(!sameText(next, saved().doc));
+        });
+      },
+      saved(savedDoc, rev) {
+        batch(() => {
+          setSaved({ doc: savedDoc, rev });
+          setModified(!sameText(doc(), savedDoc));
+        });
+      },
+    },
+  ];
+}
+
+/** The last segment of a path. */
+export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+
+/** The message for a save that failed. The Draft is always kept. */
+function saveFailure(tab: Tab, e: unknown) {
+  const name = fileName(tab.path);
+  if (e instanceof ApiError && e.code === "conflict") {
+    return `${name} changed in Dropbox since you opened it, so your changes weren't saved. Your Draft is kept.`;
+  }
+  const why = e instanceof Error ? e.message : String(e);
+  return `Couldn't save ${name}: ${why} Your Draft is kept; save again to retry.`;
+}
 
 const parentFolders = (path: string) => {
   const parts = path.split("/").slice(0, -1);
@@ -78,6 +131,10 @@ export function createAppState() {
   const [activeKey, setActiveKey] = createSignal<string>();
   const [previewKey, setPreviewKey] = createSignal<string>();
   const [error, setError] = createSignal<string>();
+
+  const controls = new WeakMap<Tab, TabControls>();
+  // Tabs being saved, so a second Ctrl+S doesn't send the same save twice.
+  const saving = new WeakSet<Tab>();
 
   // Opens in flight, so a double click (which also clicks twice) fetches once.
   const pending = new Map<string, Promise<OpenedFile>>();
@@ -155,10 +212,39 @@ export function createAppState() {
     /** Activates the Tab at a 0-based position, if there is one. */
     activateAt,
 
-    /** Closes a Tab; the Tab to its right (else its left) becomes active. */
+    /** Records an edit made in a Tab's editor. Editing the Preview Tab pins it. */
+    edit(tab: Tab, doc: Text) {
+      batch(() => {
+        controls.get(tab)?.edit(doc);
+        pin(tab.path);
+      });
+    },
+
+    /** Saves the active Tab's Draft to Dropbox. A failure keeps the Draft
+     * and reports why. */
+    async save() {
+      const tab = activeTab();
+      if (!tab || !tab.modified() || saving.has(tab)) return;
+      const doc = tab.doc();
+      saving.add(tab);
+      try {
+        const res = await api.saveFile(tab.path, doc.toString(), tab.rev());
+        controls.get(tab)?.saved(doc, res.rev);
+        setError(undefined);
+      } catch (e) {
+        setError(saveFailure(tab, e));
+      } finally {
+        saving.delete(tab);
+      }
+    },
+
+    /** Closes a Tab; the Tab to its right (else its left) becomes active. A
+     * Tab with a Draft closes only if the Owner confirms discarding it. */
     close(path: string) {
       const i = indexOf(path);
       if (i < 0) return;
+      const tab = tabs()[i];
+      if (tab.modified() && !confirm(`Discard your Draft of ${fileName(tab.path)}?`)) return;
       const key = pathKey(path);
       batch(() => {
         const rest = tabs().filter((_, j) => j !== i);
@@ -204,7 +290,8 @@ export function createAppState() {
         batch(() => {
           // Checked again after the fetch: another open may have got there first.
           if (file && indexOf(node.path) < 0) {
-            const tab: Tab = { path: file.path, file };
+            const [tab, control] = createTab(file);
+            controls.set(tab, control);
             const previewPath = previewKey();
             const preview = previewPath ? indexOf(previewPath) : -1;
             const next = [...tabs()];

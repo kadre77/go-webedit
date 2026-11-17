@@ -163,19 +163,19 @@ Shapes, not exact names:
 - **Move:** renames or moves a file or folder, and fails if the destination exists.
 - **Delete:** deletes a file or folder. Dropbox keeps deleted items in its trash.
 - **Session:** returns whether the caller is signed in. Sign-in start (`GET /auth/signin`), OAuth callback (`GET /auth/callback`, the redirect URI registered with Dropbox) and sign-out (`POST /auth/signout`) are plain browser routes, not JSON. They end on the app's `/signin?reason=...` page when sign-in fails or after sign-out.
-- Errors use one JSON shape with a machine-readable code and a human message. The codes are: unauthorized, reauthorize, forbidden-origin, invalid-path, not-found, not-a-file (a folder where a file was expected), already-exists, conflict, binary-file, too-large, dropbox-unavailable. A new code is added to this list when it is introduced.
+- Errors use one JSON shape with a machine-readable code and a human message. The codes are: bad-request, unauthorized, reauthorize, forbidden-origin, invalid-path, not-found, not-a-file (a folder where a file was expected), already-exists, conflict, binary-file, too-large, dropbox-unavailable. A new code is added to this list when it is introduced.
 
 ### Line endings and encoding
 
 - A Text File is valid UTF-8 with no null byte, at most 5 MB. Anything else that is openable by size is a Binary File.
 - On open the server detects the dominant line ending (CRLF if any line uses CRLF and most do, otherwise LF) and whether the file ends with a newline, and sends the content with LF line endings plus those two facts. The editor always works in LF.
-- On save the client sends LF content and the two facts back (through the open Tab's state). The server restores the original line ending and trailing-newline state. A UTF-8 byte-order mark present on open is kept on save.
+- On save the client sends LF content and the revision it opened. The server downloads the file at that revision and restores its BOM, trailing-newline state and line endings: lines in the unchanged runs at the start and end of the file keep their own endings (so mixed endings survive), and the lines between get the dominant one. Deriving the facts on the server, instead of having the client send them back, keeps them correct without trusting the client, at the cost of one download per save.
 
 ### Frontend
 
 - SolidJS application with these modules:
   - **API client:** typed wrapper over the JSON API that turns error codes into typed failures and handles 401/reauthorize redirects.
-  - **App state:** the tree, open Tabs (including which one is the Preview Tab), the active Tab, Drafts, and each Tab's revision and line-ending facts. It also owns the conflict and outside-change rules.
+  - **App state:** the tree, open Tabs (including which one is the Preview Tab), the active Tab, Drafts, and each Tab's revision. It also owns the conflict and outside-change rules.
   - **Draft store:** persists Drafts, the list of open Tabs and the active Tab in browser storage (IndexedDB), keyed by path, and restores them on load. It wraps every storage call so the app still works when storage is unavailable.
   - **Editor view:** CodeMirror 6 with the Mariana dark theme, language detection by file extension with languages loaded lazily, indentation detection, the Sublime-style keymap, multi-cursor (desktop), search and replace, and go-to-line.
   - **Goto Anything** and **Command Palette:** one shared fuzzy-finder overlay used by both, ranking file-name matches above matches spread across the path.

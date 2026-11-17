@@ -1,6 +1,7 @@
-// Sublime's Tab shortcuts: Ctrl+W closes, Ctrl+Tab / Ctrl+Shift+Tab and
-// Ctrl+PageDown / Ctrl+PageUp switch, Alt+1..9 jumps. On macOS Cmd stands in
-// for Ctrl, except in Ctrl+Tab (Cmd+Tab belongs to the system).
+// Sublime's Tab shortcuts: Ctrl+S saves, Ctrl+W closes, Ctrl+Tab /
+// Ctrl+Shift+Tab and Ctrl+PageDown / Ctrl+PageUp switch, Alt+1..9 jumps. On
+// macOS Cmd stands in for Ctrl, except in Ctrl+Tab (Cmd+Tab belongs to the
+// system).
 //
 // Browsers keep some of these for themselves in an ordinary browser tab (for
 // example Ctrl+W and Ctrl+Tab in Chrome), so they reach the app only where the
@@ -11,11 +12,12 @@ import type { AppState } from "./appState";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 
-type Action = { close: true } | { cycle: number } | { jump: number };
+type Action = { save: true } | { close: true } | { cycle: number } | { jump: number };
 
 function actionFor(e: KeyboardEvent): Action | undefined {
   const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
   if (mod && !e.altKey && !e.shiftKey) {
+    if (e.key.toLowerCase() === "s") return { save: true };
     if (e.key.toLowerCase() === "w") return { close: true };
     if (e.key === "PageDown") return { cycle: 1 };
     if (e.key === "PageUp") return { cycle: -1 };
@@ -34,7 +36,8 @@ export function useTabShortcuts(state: AppState) {
     if (!action) return;
     e.preventDefault();
     e.stopPropagation();
-    if ("close" in action) state.closeActive();
+    if ("save" in action) void state.save();
+    else if ("close" in action) state.closeActive();
     else if ("cycle" in action) state.cycle(action.cycle);
     else state.activateAt(action.jump);
   };

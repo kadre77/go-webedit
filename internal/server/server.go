@@ -66,6 +66,7 @@ func New(o Options) *echo.Echo {
 	fh := &fileHandlers{port: o.Dropbox}
 	api.GET("/tree", fh.tree, a.requireSession)
 	api.GET("/file", fh.open, a.requireSession)
+	api.PUT("/file", fh.save, a.requireSession)
 	notFound := func(echo.Context) error { return echo.ErrNotFound }
 	e.Any("/api", notFound)
 	api.Any("/*", notFound)
@@ -114,6 +115,7 @@ func serveIndex(c echo.Context, frontend fs.FS) error {
 type apiError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Rev     string `json:"rev,omitempty"` // a conflict's current revision
 }
 
 // errorCodes maps HTTP statuses that Echo raises on its own to API codes.
@@ -137,7 +139,7 @@ func handleError(log *slog.Logger, err error, c echo.Context) {
 		if ae.Err != nil {
 			log.Error("request failed", "code", ae.Code, "err", ae.Err)
 		}
-		writeError(log, c, ae.Status, ae.Code, ae.Message)
+		writeError(log, c, ae.Status, apiError{Code: ae.Code, Message: ae.Message, Rev: ae.Rev})
 		return
 	}
 	if errors.As(err, &he) {
@@ -155,15 +157,15 @@ func handleError(log *slog.Logger, err error, c echo.Context) {
 			code = "bad-request"
 		}
 	}
-	writeError(log, c, status, code, message)
+	writeError(log, c, status, apiError{Code: code, Message: message})
 }
 
-func writeError(log *slog.Logger, c echo.Context, status int, code, message string) {
+func writeError(log *slog.Logger, c echo.Context, status int, body apiError) {
 	var err error
 	if c.Request().Method == http.MethodHead {
 		err = c.NoContent(status)
 	} else {
-		err = c.JSON(status, apiError{Code: code, Message: message})
+		err = c.JSON(status, body)
 	}
 	if err != nil {
 		log.Error("writing error response", "err", err)
@@ -176,7 +178,8 @@ type Error struct {
 	Status  int
 	Code    string
 	Message string
-	Err     error // the underlying cause, logged but never sent
+	Rev     string // for a Save Conflict, the file's current revision
+	Err     error  // the underlying cause, logged but never sent
 }
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }

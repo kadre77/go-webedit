@@ -210,3 +210,15 @@ body,
 .tab-close:hover {
   opacity: 1;
 }
+
+/* A Tab with a Draft shows a dot instead of the close cross, until hovered. */
+.tab-dot,
+.tab.modified .tab-x,
+.tab.modified:hover .tab-dot {
+  display: none;
+}
+
+.tab.modified .tab-dot,
+.tab.modified:hover .tab-x {
+  display: inline;
+}

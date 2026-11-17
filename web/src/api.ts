@@ -27,15 +27,20 @@ export type ErrorCode =
   | "not-a-file"
   | "too-large"
   | "binary-file"
+  | "conflict"
   | "dropbox-unavailable"
   | "network"
   | (string & {});
+
+export type SavedFile = { path: string; rev: string };
 
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: ErrorCode,
     message: string,
+    /** For a Save Conflict, the file's current revision in Dropbox. */
+    readonly rev?: string,
   ) {
     super(message);
   }
@@ -54,10 +59,10 @@ export function setAuthLostHandler(handler: (why: AuthLost) => void) {
   onAuthLost = handler;
 }
 
-async function getJSON<T>(url: string): Promise<T> {
+async function requestJSON<T>(url: string, init: RequestInit = {}): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, { headers: { Accept: "application/json" } });
+    res = await fetch(url, { ...init, headers: { Accept: "application/json", ...init.headers } });
   } catch {
     throw new ApiError(0, "network", "The server could not be reached.");
   }
@@ -65,10 +70,12 @@ async function getJSON<T>(url: string): Promise<T> {
   if (!res.ok) {
     const code: ErrorCode = body?.code ?? "internal";
     if (res.status === 401 && isAuthLost(code)) onAuthLost(code);
-    throw new ApiError(res.status, code, body?.message ?? res.statusText);
+    throw new ApiError(res.status, code, body?.message ?? res.statusText, body?.rev);
   }
   return body as T;
 }
+
+const getJSON = <T>(url: string) => requestJSON<T>(url);
 
 export const api = {
   async signedIn(): Promise<boolean> {
@@ -79,5 +86,15 @@ export const api = {
   },
   openFile(path: string): Promise<OpenedFile> {
     return getJSON(`/api/file?path=${encodeURIComponent(path)}`);
+  },
+  /** Saves LF content over the revision the file was opened (or last saved)
+   * at. The server puts back the file's own line endings. Fails with code
+   * "conflict" (and the current revision) if the file changed in Dropbox. */
+  saveFile(path: string, content: string, rev: string): Promise<SavedFile> {
+    return requestJSON("/api/file", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, content, rev }),
+    });
   },
 };

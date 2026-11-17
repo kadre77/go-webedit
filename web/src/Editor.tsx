@@ -2,7 +2,7 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState, type StateEffect, Transaction } from "@codemirror/state";
+import { Compartment, EditorState, type StateEffect, type Text, Transaction } from "@codemirror/state";
 import {
   crosshairCursor,
   drawSelection,
@@ -60,7 +60,7 @@ type Snapshot = { state: EditorState; scroll: StateEffect<unknown> };
 // One editor view, shared by every Tab. Switching Tabs stores the outgoing
 // Tab's state (content, cursor, undo history) and scroll position, and puts
 // back the incoming Tab's, so each Tab keeps its own.
-export function Editor(props: { tab: Tab; onEdit: (tab: Tab) => void }) {
+export function Editor(props: { tab: Tab; onEdit: (tab: Tab, doc: Text) => void }) {
   let host!: HTMLDivElement;
   let view!: EditorView;
   let shown: Tab | undefined;
@@ -69,7 +69,7 @@ export function Editor(props: { tab: Tab; onEdit: (tab: Tab) => void }) {
   const extensions = [
     baseExtensions,
     EditorView.updateListener.of((update) => {
-      if (update.docChanged && shown) props.onEdit(shown);
+      if (update.docChanged && shown) props.onEdit(shown, update.state.doc);
     }),
   ];
 
@@ -87,7 +87,7 @@ export function Editor(props: { tab: Tab; onEdit: (tab: Tab) => void }) {
       }, (err) => console.warn(`Couldn't load highlighting for ${tab.path}; showing plain text.`, err));
     }
     return EditorState.create({
-      doc: tab.file.content,
+      doc: tab.doc(),
       extensions: [extensions, indentUnit.of(detectIndentUnit(tab.file.content)), language.of(lang?.ready ?? [])],
     });
   };

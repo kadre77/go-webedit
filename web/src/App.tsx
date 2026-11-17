@@ -68,7 +68,7 @@ function SignedInApp() {
             </div>
           }
         >
-          {(tab) => <Editor tab={tab()} onEdit={(t) => state.pin(t.path)} />}
+          {(tab) => <Editor tab={tab()} onEdit={(t, doc) => state.edit(t, doc)} />}
         </Show>
       </main>
     </div>

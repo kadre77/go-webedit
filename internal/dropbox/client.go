@@ -16,8 +16,13 @@ import (
 )
 
 // errNotYet marks Port operations the real adapter doesn't implement yet
-// (saving arrives with ticket 06, file management with ticket 10).
+// (file management arrives with ticket 10).
 var errNotYet = errors.New("dropbox: not implemented yet")
+
+// errWriteConflict is Dropbox refusing a write because of what is at the
+// path. Each operation turns it into the Port error that fits: a stale
+// revision for an update, something already there for a create or move.
+var errWriteConflict = errors.New("dropbox: write conflict")
 
 // RefreshTokenSource supplies the stored refresh token. It is read on every
 // refresh, so a new sign-in takes effect without a restart.
@@ -221,6 +226,8 @@ func apiError(endpoint string, res *http.Response) error {
 			return fmt.Errorf("%w (%v)", ErrNotFound, err)
 		case strings.Contains(summary, "/not_file"):
 			return fmt.Errorf("%w (%v)", ErrNotFile, err)
+		case strings.Contains(summary, "/conflict/"):
+			return fmt.Errorf("%w (%v)", errWriteConflict, err)
 		}
 	}
 	return err
@@ -345,9 +352,41 @@ func (c *Client) Download(ctx context.Context, path string, maxSize int64) (File
 	return File{Entry: m.entry(), Content: content}, nil
 }
 
-// UploadUpdate implements Port (not yet: ticket 06).
-func (c *Client) UploadUpdate(context.Context, string, []byte, string) (Entry, error) {
-	return Entry{}, errNotYet
+// UploadUpdate implements Port. Dropbox's update mode writes only over the
+// given revision; with autorename off and strict conflicts on, any other
+// revision is a conflict instead of a renamed copy.
+func (c *Client) UploadUpdate(ctx context.Context, path string, content []byte, rev string) (Entry, error) {
+	arg, err := apiArg(map[string]any{
+		"path":            path,
+		"mode":            map[string]string{".tag": "update", "update": rev},
+		"autorename":      false,
+		"mute":            true,
+		"strict_conflict": true,
+	})
+	if err != nil {
+		return Entry{}, err
+	}
+	res, err := c.call(ctx, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoints.Content+"/2/files/upload", bytes.NewReader(content))
+		if err == nil {
+			req.Header.Set("Dropbox-API-Arg", arg)
+			req.Header.Set("Content-Type", "application/octet-stream")
+		}
+		return req, err
+	})
+	if errors.Is(err, errWriteConflict) {
+		return Entry{}, fmt.Errorf("%w (%v)", ErrConflict, err)
+	}
+	if err != nil {
+		return Entry{}, err
+	}
+	defer res.Body.Close()
+	var m metadata
+	if err := json.NewDecoder(res.Body).Decode(&m); err != nil {
+		return Entry{}, fmt.Errorf("dropbox: upload: decoding the result: %w", err)
+	}
+	m.Tag = "file"
+	return m.entry(), nil
 }
 
 // UploadNew implements Port (not yet: ticket 10).

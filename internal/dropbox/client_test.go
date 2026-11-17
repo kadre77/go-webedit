@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -41,6 +42,7 @@ type stubDropbox struct {
 	files     []stubFile
 	folders   []string
 	pageSize  int
+	revs      int
 	failWith  int    // when set, file endpoints answer with this status
 	lastArg   string // the last Dropbox-API-Arg header
 }
@@ -52,6 +54,7 @@ func newStubDropbox(t *testing.T) *stubDropbox {
 	mux.HandleFunc("POST /2/files/list_folder", s.authed(s.listFolder))
 	mux.HandleFunc("POST /2/files/list_folder/continue", s.authed(s.listContinue))
 	mux.HandleFunc("POST /2/files/download", s.authed(s.download))
+	mux.HandleFunc("POST /2/files/upload", s.authed(s.upload))
 	s.Server = httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s
@@ -248,6 +251,51 @@ func (s *stubDropbox) download(w http.ResponseWriter, r *http.Request) {
 	pathError(w, "not_found")
 }
 
+// upload answers like Dropbox's upload endpoint in update mode: it writes
+// only if the file's revision is the one given, and a write gives a new
+// revision.
+func (s *stubDropbox) upload(w http.ResponseWriter, r *http.Request) {
+	raw := r.Header.Get("Dropbox-API-Arg")
+	var arg struct {
+		Path string
+		Mode struct {
+			Tag    string `json:".tag"`
+			Update string `json:"update"`
+		}
+		Autorename     bool `json:"autorename"`
+		StrictConflict bool `json:"strict_conflict"`
+	}
+	if err := json.Unmarshal([]byte(raw), &arg); err != nil || r.Header.Get("Content-Type") != "application/octet-stream" {
+		http.Error(w, "bad Dropbox-API-Arg or Content-Type", 400)
+		return
+	}
+	if arg.Mode.Tag != "update" || arg.Autorename || !arg.StrictConflict {
+		s.t.Errorf("upload arg = %s, want update mode, no autorename, strict conflicts", raw)
+	}
+	content, _ := io.ReadAll(r.Body)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastArg = raw
+	for i, f := range s.files {
+		if !strings.EqualFold(f.path, arg.Path) {
+			continue
+		}
+		if f.rev != arg.Mode.Update {
+			writeJSON(w, 409, map[string]any{
+				"error_summary": "path/conflict/file/..",
+				"error": map[string]any{".tag": "path", "reason": map[string]any{
+					".tag": "conflict", "conflict": map[string]string{".tag": "file"}}},
+			})
+			return
+		}
+		s.revs++
+		s.files[i] = stubFile{path: f.path, rev: fmt.Sprintf("0new%d", s.revs), content: content}
+		writeJSON(w, 200, s.files[i].entry())
+		return
+	}
+	writeJSON(w, 409, map[string]any{"error_summary": "path/conflict/file/.."})
+}
+
 // memTokens is a refresh-token source in memory.
 type memTokens struct {
 	mu  sync.Mutex
@@ -424,6 +472,32 @@ func TestClientDownloadsAFileWithItsRevision(t *testing.T) {
 	}
 	if _, err := c.Download(ctx, "/Notes", noLimit); !errors.Is(err, dropbox.ErrNotFile) {
 		t.Errorf("folder: err = %v", err)
+	}
+}
+
+func TestClientUploadsOnlyOverTheRevisionItWasGiven(t *testing.T) {
+	stub := newStubDropbox(t)
+	stub.folders = []string{"/Notes"}
+	stub.files = []stubFile{{path: "/Notes/Día.md", rev: "0a1", content: []byte("old\n")}}
+	c, _ := signedInClient(t, stub)
+
+	e, err := c.UploadUpdate(ctx, "/notes/día.md", []byte("new\r\n"), "0a1")
+	if err != nil {
+		t.Fatalf("%v (Dropbox-API-Arg %s)", err, stub.lastArg)
+	}
+	if e.Path != "/Notes/Día.md" || e.Rev == "0a1" || e.Rev == "" || e.Size != 5 {
+		t.Errorf("entry = %+v", e)
+	}
+	f, err := c.Download(ctx, "/Notes/Día.md", noLimit)
+	if err != nil || string(f.Content) != "new\r\n" || f.Rev != e.Rev {
+		t.Errorf("after upload: %+v %q, %v", f.Entry, f.Content, err)
+	}
+
+	if _, err := c.UploadUpdate(ctx, "/Notes/Día.md", []byte("stale"), "0a1"); !errors.Is(err, dropbox.ErrConflict) {
+		t.Errorf("stale revision: err = %v", err)
+	}
+	if f, _ := c.Download(ctx, "/Notes/Día.md", noLimit); string(f.Content) != "new\r\n" {
+		t.Errorf("a refused upload changed the file: %q", f.Content)
 	}
 }
 
