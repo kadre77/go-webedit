@@ -4,12 +4,12 @@
 
 **Blocked by:** 06 (Save)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Drafts persist in IndexedDB keyed by path, written as the Owner types (debounced), and removed on successful save or discard
-- [ ] The list of open Tabs (including which is the Preview Tab) and the active Tab persist and are restored on load
-- [ ] Reopening a file with a stored Draft restores the Draft over the downloaded content and shows the modified dot; the stored opened revision is kept so a changed file still causes a Save Conflict
-- [ ] A restored Tab whose file no longer exists in Dropbox keeps its Draft and tells the Owner the file is gone
-- [ ] Leaving the page with any Draft triggers the browser's leave-page warning
-- [ ] Every storage call is wrapped so that unavailable or failing storage degrades to in-memory only, without errors
-- [ ] Playwright tests: type, reload, Draft and Tabs restored; save, reload, no Draft
+- [x] Drafts persist in IndexedDB keyed by path, written as the Owner types (debounced), and removed on successful save or discard
+- [x] The list of open Tabs (including which is the Preview Tab) and the active Tab persist and are restored on load
+- [x] Reopening a file with a stored Draft restores the Draft over the downloaded content and shows the modified dot; the stored opened revision is kept so a changed file still causes a Save Conflict
+- [x] A restored Tab whose file no longer exists in Dropbox keeps its Draft and tells the Owner the file is gone
+- [x] Leaving the page with any Draft triggers the browser's leave-page warning
+- [x] Every storage call is wrapped so that unavailable or failing storage degrades to in-memory only, without errors
+- [x] Playwright tests: type, reload, Draft and Tabs restored; save, reload, no Draft

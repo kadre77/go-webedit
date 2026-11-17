@@ -90,7 +90,7 @@ export function Editor(props: { tab: Tab; onEdit: (tab: Tab, doc: Text) => void 
     }
     return EditorState.create({
       doc: tab.doc(),
-      extensions: [extensions, indentUnit.of(detectIndentUnit(tab.file.content)), language.of(lang?.ready ?? [])],
+      extensions: [extensions, indentUnit.of(detectIndentUnit(tab.doc().toString())), language.of(lang?.ready ?? [])],
     });
   };
 

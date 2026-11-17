@@ -45,9 +45,13 @@ export function App() {
 
 function SignedInApp() {
   const state = createAppState();
-  onMount(() => void state.loadTree());
+  onMount(() => {
+    void state.loadTree();
+    void state.restore();
+  });
   useTabShortcuts(state);
   useOutsideChangeChecks(state);
+  useDraftGuard(state);
 
   return (
     <div class="layout">
@@ -90,5 +94,26 @@ function useOutsideChangeChecks(state: ReturnType<typeof createAppState>) {
   onCleanup(() => {
     window.removeEventListener("focus", check);
     document.removeEventListener("visibilitychange", onVisible);
+  });
+}
+
+/** Writes pending Drafts to browser storage when the page is left or hidden,
+ * and has the browser ask before leaving a page that has Drafts. */
+function useDraftGuard(state: ReturnType<typeof createAppState>) {
+  const onBeforeUnload = (e: BeforeUnloadEvent) => {
+    state.flushDrafts();
+    if (!state.hasDrafts()) return;
+    e.preventDefault();
+    e.returnValue = ""; // older browsers ask only when this is set
+  };
+  const flush = () => state.flushDrafts();
+  const onHidden = () => document.visibilityState === "hidden" && flush();
+  window.addEventListener("beforeunload", onBeforeUnload);
+  window.addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", onHidden);
+  onCleanup(() => {
+    window.removeEventListener("beforeunload", onBeforeUnload);
+    window.removeEventListener("pagehide", flush);
+    document.removeEventListener("visibilitychange", onHidden);
   });
 }

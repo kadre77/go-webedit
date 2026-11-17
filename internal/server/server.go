@@ -74,6 +74,7 @@ func New(o Options) *echo.Echo {
 	api.POST("/file/copy", fh.saveCopy, a.requireSession)
 	if o.TestFake != nil {
 		api.PUT("/test/file", changeFakeFile(o.TestFake), a.requireSession)
+		api.DELETE("/test/file", deleteFakeFile(o.TestFake), a.requireSession)
 	}
 	notFound := func(echo.Context) error { return echo.ErrNotFound }
 	e.Any("/api", notFound)
@@ -213,5 +214,21 @@ func changeFakeFile(fake *dropbox.Fake) echo.HandlerFunc {
 			return dropboxError(err)
 		}
 		return c.JSON(http.StatusOK, fileRev{Path: apiPath(e.Path), Rev: e.Rev})
+	}
+}
+
+// deleteFakeFile is the test-mode hook that deletes a file in the fake
+// Dropbox as another device would, so browser tests can reopen a Tab whose
+// file is gone. The path is the "path" query parameter.
+func deleteFakeFile(fake *dropbox.Fake) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		p, err := cleanPath(c.QueryParam("path"))
+		if err != nil {
+			return err
+		}
+		if err := fake.Delete(c.Request().Context(), p); err != nil {
+			return dropboxError(err)
+		}
+		return c.NoContent(http.StatusNoContent)
 	}
 }

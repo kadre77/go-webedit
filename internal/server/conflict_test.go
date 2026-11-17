@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 	"testing/fstest"
 
@@ -182,6 +183,44 @@ func TestTestModeHookChangesAFileInTheFakeDropbox(t *testing.T) {
 func TestTheTestModeHookIsAbsentOutsideTestMode(t *testing.T) {
 	ts := newTestServerWith(t, fstest.MapFS{"Notes/Today.md": {Data: []byte("a\n")}})
 	status, body := changeElsewhere(t, ts, "Notes/Today.md", "theirs\n")
+	assertError(t, status, body, http.StatusNotFound, "not-found")
+	if content, _ := ts.stored(t, "/Notes/Today.md"); content != "a\n" {
+		t.Errorf("stored %q", content)
+	}
+}
+
+// deleteElsewhere deletes path through the test-mode hook, as another device
+// would.
+func deleteElsewhere(t *testing.T, ts *testServer, path string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/test/file?path="+url.QueryEscape(path), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Origin", ts.URL)
+	res, body := ts.do(t, req)
+	return res.StatusCode, body
+}
+
+func TestTestModeHookDeletesAFileInTheFakeDropbox(t *testing.T) {
+	ts := newSignedOutServer(t, fstest.MapFS{"Notes/Today.md": {Data: []byte("a\n")}}, withTestHooks)
+	ts.signIn(t)
+
+	if status, body := deleteElsewhere(t, ts, "notes/today.md"); status != http.StatusNoContent {
+		t.Fatalf("status = %d, body %s", status, body)
+	}
+	res, body := get(t, ts, "/api/file?path=Notes/Today.md")
+	assertError(t, res.StatusCode, body, http.StatusNotFound, "not-found")
+
+	status, body := deleteElsewhere(t, ts, "Notes/Today.md")
+	assertError(t, status, body, http.StatusNotFound, "not-found")
+	status, body = deleteElsewhere(t, ts, "../x.md")
+	assertError(t, status, body, http.StatusBadRequest, "invalid-path")
+}
+
+func TestTheTestModeDeleteHookIsAbsentOutsideTestMode(t *testing.T) {
+	ts := newTestServerWith(t, fstest.MapFS{"Notes/Today.md": {Data: []byte("a\n")}})
+	status, body := deleteElsewhere(t, ts, "Notes/Today.md")
 	assertError(t, status, body, http.StatusNotFound, "not-found")
 	if content, _ := ts.stored(t, "/Notes/Today.md"); content != "a\n" {
 		t.Errorf("stored %q", content)
