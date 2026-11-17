@@ -1,6 +1,7 @@
-import { Match, onMount, Show, Switch, createSignal } from "solid-js";
+import { Match, onCleanup, onMount, Show, Switch, createSignal } from "solid-js";
 import { api, setAuthLostHandler } from "./api";
 import { createAppState } from "./appState";
+import { ConflictDialog } from "./ConflictDialog";
 import { Editor } from "./Editor";
 import { Sidebar } from "./Sidebar";
 import { SignIn } from "./SignIn";
@@ -46,6 +47,7 @@ function SignedInApp() {
   const state = createAppState();
   onMount(() => void state.loadTree());
   useTabShortcuts(state);
+  useOutsideChangeChecks(state);
 
   return (
     <div class="layout">
@@ -70,7 +72,23 @@ function SignedInApp() {
         >
           {(tab) => <Editor tab={tab()} onEdit={(t, doc) => state.edit(t, doc)} />}
         </Show>
+        <Show when={state.conflict()} keyed>
+          {(conflict) => <ConflictDialog state={state} conflict={conflict} />}
+        </Show>
       </main>
     </div>
   );
+}
+
+/** Checks the open Tabs for changes made in Dropbox whenever the app comes
+ * back into view: the window regains focus, or the browser tab is shown. */
+function useOutsideChangeChecks(state: ReturnType<typeof createAppState>) {
+  const check = () => void state.checkOutsideChanges();
+  const onVisible = () => document.visibilityState === "visible" && check();
+  window.addEventListener("focus", check);
+  document.addEventListener("visibilitychange", onVisible);
+  onCleanup(() => {
+    window.removeEventListener("focus", check);
+    document.removeEventListener("visibilitychange", onVisible);
+  });
 }

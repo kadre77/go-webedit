@@ -63,10 +63,15 @@ export function Sidebar(props: { state: AppState }) {
           )}
         </For>
       </div>
-      {/* A plain form post: the browser sends the Origin header the server checks. */}
-      <form class="sidebar-footer" method="post" action="/auth/signout">
-        <button type="submit">Sign out</button>
-      </form>
+      <div class="sidebar-footer">
+        <button type="button" title="Reload the tree from Dropbox" onClick={() => void state.loadTree()}>
+          Refresh
+        </button>
+        {/* A plain form post: the browser sends the Origin header the server checks. */}
+        <form method="post" action="/auth/signout">
+          <button type="submit">Sign out</button>
+        </form>
+      </div>
     </nav>
   );
 }

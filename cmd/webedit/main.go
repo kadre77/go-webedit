@@ -42,15 +42,17 @@ func run() error {
 	}
 
 	var port dropbox.Port = dropbox.NewClient(cfg.DropboxAppKey, cfg.DropboxAppSecret, tokens)
+	var fake *dropbox.Fake
 	if cfg.TestMode {
 		slog.Warn("TEST MODE is on; never use this in production")
 		var seed fs.FS
 		if cfg.TestFixtures != "" {
 			seed = os.DirFS(cfg.TestFixtures)
 		}
-		if port, err = dropbox.NewFake(cfg.OwnerAccountID, seed); err != nil {
+		if fake, err = dropbox.NewFake(cfg.OwnerAccountID, seed); err != nil {
 			return err
 		}
+		port = fake
 	}
 
 	srv := &http.Server{
@@ -62,6 +64,7 @@ func run() error {
 			OwnerAccountID: cfg.OwnerAccountID,
 			BaseURL:        cfg.BaseURL,
 			SessionSecret:  cfg.SessionSecret,
+			TestFake:       fake,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

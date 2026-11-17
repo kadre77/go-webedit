@@ -357,3 +357,40 @@ func TestFakeDownloadRefusesFilesOverTheLimit(t *testing.T) {
 		t.Errorf("8-byte file, limit 8: %+v, %v", f, err)
 	}
 }
+
+func TestFakeMetadataReportsTheCurrentRevisionInDisplayCase(t *testing.T) {
+	fake := seeded(t)
+	f, _ := fake.Download(ctx, "/readme.md", noLimit)
+	e, err := fake.Metadata(ctx, "/README.MD")
+	if err != nil || e.Path != f.Path || e.Rev != f.Rev || e.Folder {
+		t.Fatalf("metadata = %+v, %v; downloaded %+v", e, err, f.Entry)
+	}
+	up, _ := fake.UploadUpdate(ctx, "/readme.md", []byte("x"), f.Rev)
+	if e, _ := fake.Metadata(ctx, "/readme.md"); e.Rev != up.Rev {
+		t.Errorf("after a write: rev %s, want %s", e.Rev, up.Rev)
+	}
+	if e, err := fake.Metadata(ctx, "/notes"); err != nil || !e.Folder {
+		t.Errorf("folder: %+v, %v", e, err)
+	}
+	if _, err := fake.Metadata(ctx, "/gone.md"); !errors.Is(err, dropbox.ErrNotFound) {
+		t.Errorf("missing: err = %v", err)
+	}
+}
+
+func TestFakeWriteChangesFilesAsAnotherDeviceWould(t *testing.T) {
+	fake := seeded(t)
+	before, _ := fake.Download(ctx, "/readme.md", noLimit)
+	e, err := fake.Write("/README.md", []byte("theirs"))
+	if err != nil || e.Path != "/readme.md" || e.Rev == before.Rev {
+		t.Fatalf("overwrite: %+v, %v (before %s)", e, err, before.Rev)
+	}
+	if _, err := fake.UploadUpdate(ctx, "/readme.md", []byte("mine"), before.Rev); !errors.Is(err, dropbox.ErrConflict) {
+		t.Errorf("save over the old revision: err = %v, want conflict", err)
+	}
+	if e, err := fake.Write("/Notes/New/idea.md", []byte("new")); err != nil || e.Path != "/Notes/New/idea.md" {
+		t.Errorf("new file: %+v, %v", e, err)
+	}
+	if _, err := fake.Write("/Notes", []byte("x")); !errors.Is(err, dropbox.ErrNotFile) {
+		t.Errorf("folder: err = %v", err)
+	}
+}

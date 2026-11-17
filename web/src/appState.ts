@@ -1,6 +1,7 @@
 // App state: the tree, which folders are expanded, which files turned
 // out to be binary this session, and the open Tabs (which one is active,
 // which one, if any, is the Preview Tab, and each one's Draft and revision).
+// It also owns the Save Conflict and outside-change rules.
 
 import { Text } from "@codemirror/state";
 import { type Accessor, batch, createEffect, createMemo, createSignal, on } from "solid-js";
@@ -76,12 +77,17 @@ export type Tab = {
 type TabControls = {
   edit(doc: Text): void;
   saved(doc: Text, rev: string): void;
+  /** Replaces the content with the file as Dropbox has it now, dropping
+   * any Draft. */
+  reload(file: OpenedFile): void;
 };
 
 const sameText = (a: Text, b: Text) => a === b || (a.length === b.length && a.eq(b));
 
+const textOf = (file: OpenedFile) => Text.of(file.content.split("\n"));
+
 function createTab(file: OpenedFile): [Tab, TabControls] {
-  const opened = Text.of(file.content.split("\n"));
+  const opened = textOf(file);
   const [doc, setDoc] = createSignal(opened);
   const [saved, setSaved] = createSignal({ doc: opened, rev: file.rev });
   const [modified, setModified] = createSignal(false);
@@ -101,6 +107,14 @@ function createTab(file: OpenedFile): [Tab, TabControls] {
           setModified(!sameText(doc(), savedDoc));
         });
       },
+      reload(next) {
+        const text = textOf(next);
+        batch(() => {
+          setSaved({ doc: text, rev: next.rev });
+          setDoc(text);
+          setModified(false);
+        });
+      },
     },
   ];
 }
@@ -111,9 +125,6 @@ export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 /** The message for a save that failed. The Draft is always kept. */
 function saveFailure(tab: Tab, e: unknown) {
   const name = fileName(tab.path);
-  if (e instanceof ApiError && e.code === "conflict") {
-    return `${name} changed in Dropbox since you opened it, so your changes weren't saved. Your Draft is kept.`;
-  }
   const why = e instanceof Error ? e.message : String(e);
   return `Couldn't save ${name}: ${why} Your Draft is kept; save again to retry.`;
 }
@@ -123,6 +134,12 @@ const parentFolders = (path: string) => {
   return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
 };
 
+/** A save Dropbox refused because the file changed there: the Tab, and the
+ * revision Dropbox has now. */
+export type SaveConflict = { tab: Tab; rev: string };
+
+export type ConflictChoice = "overwrite" | "reload" | "copy" | "cancel";
+
 export function createAppState() {
   const [entries, setEntries] = createSignal<TreeEntry[]>([]);
   const [binary, setBinary] = createSignal<ReadonlySet<string>>(new Set());
@@ -131,10 +148,16 @@ export function createAppState() {
   const [activeKey, setActiveKey] = createSignal<string>();
   const [previewKey, setPreviewKey] = createSignal<string>();
   const [error, setError] = createSignal<string>();
+  const [conflict, setConflict] = createSignal<SaveConflict>();
 
   const controls = new WeakMap<Tab, TabControls>();
   // Tabs being saved, so a second Ctrl+S doesn't send the same save twice.
   const saving = new WeakSet<Tab>();
+
+  // For each Tab with a Draft, the outside revision the Owner was last told
+  // about, so a focus check doesn't repeat the notice.
+  const noticed = new WeakMap<Tab, string>();
+  let checking = false;
 
   // Opens in flight, so a double click (which also clicks twice) fetches once.
   const pending = new Map<string, Promise<OpenedFile>>();
@@ -194,6 +217,116 @@ export function createAppState() {
 
   const report = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
 
+  const isOpen = (tab: Tab) => tabs().includes(tab);
+
+  /** Saves the Tab's current Draft over rev. A Save Conflict opens the
+   * conflict dialog; any other failure keeps the Draft and says why. */
+  async function saveOver(tab: Tab, rev: string) {
+    const doc = tab.doc();
+    saving.add(tab);
+    try {
+      const res = await api.saveFile(tab.path, doc.toString(), rev);
+      controls.get(tab)?.saved(doc, res.rev);
+      setError(undefined);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "conflict" && e.rev) {
+        setError(undefined);
+        setConflict({ tab, rev: e.rev });
+      } else {
+        setError(saveFailure(tab, e));
+      }
+    } finally {
+      saving.delete(tab);
+    }
+  }
+
+  /** Replaces the Tab's content with the file as Dropbox has it now. */
+  async function reloadTab(tab: Tab) {
+    const file = await api.openFile(tab.path);
+    if (isOpen(tab)) controls.get(tab)?.reload(file);
+  }
+
+  async function loadTree() {
+    try {
+      setEntries(await api.tree());
+      setError(undefined);
+    } catch (e) {
+      report(e);
+    }
+  }
+
+  /** Opens a file by path and activates its Tab. Unless `pinned`, a file
+   * that isn't open yet goes into the Preview Tab, replacing the one there.
+   * Returns whether the Tab is now open; a failure is reported. */
+  async function openPath(path: string, { pinned = false } = {}): Promise<boolean> {
+    const ticket = ++latestOpen;
+    try {
+      const file = indexOf(path) < 0 ? await fetchFile(path) : undefined;
+      if (ticket !== latestOpen) return indexOf(path) >= 0;
+      const key = pathKey(path);
+      batch(() => {
+        // Checked again after the fetch: another open may have got there first.
+        if (file && indexOf(path) < 0) {
+          const [tab, control] = createTab(file);
+          controls.set(tab, control);
+          const previewPath = previewKey();
+          const preview = previewPath ? indexOf(previewPath) : -1;
+          const next = [...tabs()];
+          if (!pinned && preview >= 0) next[preview] = tab;
+          else next.push(tab);
+          setTabs(next);
+          if (!pinned) setPreviewKey(key);
+        } else if (pinned) {
+          pin(path);
+        }
+        setActiveKey(key);
+      });
+      setError(undefined);
+      return true;
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "binary-file") {
+        setBinary(new Set(binary()).add(pathKey(path)));
+      }
+      report(e);
+      return false;
+    }
+  }
+
+  /** Saves the Tab's Draft as a copy next to its file and opens the copy.
+   * Only once the copy is open does the Tab go back to Dropbox's version:
+   * the Draft then lives on in the copy. */
+  async function saveAsCopy(tab: Tab) {
+    const copy = await api.saveCopy(tab.path, tab.doc().toString());
+    await loadTree();
+    if (await openPath(copy.path, { pinned: true })) await reloadTab(tab);
+  }
+
+  /** Checks one Tab's file for a change made outside the app. */
+  async function checkTab(tab: Tab) {
+    if (saving.has(tab)) return;
+    const known = tab.rev();
+    const rev = await api.checkFile(tab.path);
+    // A save that finished meanwhile moved the Tab on: this answer is stale.
+    if (rev === known || tab.rev() !== known || saving.has(tab) || !isOpen(tab)) return;
+    if (!tab.modified()) {
+      const file = await api.openFile(tab.path);
+      // The Owner may have started typing meanwhile: then it has a Draft.
+      if (!tab.modified() && !saving.has(tab) && isOpen(tab)) controls.get(tab)?.reload(file);
+      else if (isOpen(tab)) noticeOutsideChange(tab, rev);
+      return;
+    }
+    noticeOutsideChange(tab, rev);
+  }
+
+  function noticeOutsideChange(tab: Tab, rev: string) {
+    if (noticed.get(tab) === rev) return;
+    noticed.set(tab, rev);
+    setError(
+      `${fileName(tab.path)} changed in Dropbox since you opened it. Your Draft is kept; ` +
+        "saving it will ask whether to overwrite, reload or save a copy.",
+    );
+  }
+
   return {
     visibleRows,
     tabs,
@@ -220,21 +353,52 @@ export function createAppState() {
       });
     },
 
-    /** Saves the active Tab's Draft to Dropbox. A failure keeps the Draft
-     * and reports why. */
+    /** Saves the active Tab's Draft to Dropbox over the revision it was
+     * opened at. A Save Conflict opens the conflict dialog; any other failure
+     * keeps the Draft and reports why. */
     async save() {
       const tab = activeTab();
-      if (!tab || !tab.modified() || saving.has(tab)) return;
-      const doc = tab.doc();
-      saving.add(tab);
+      if (!tab || !tab.modified() || saving.has(tab) || conflict()) return;
+      await saveOver(tab, tab.rev());
+    },
+
+    /** The Save Conflict waiting for the Owner's choice, if any. */
+    conflict,
+
+    /** Resolves the Save Conflict with the Owner's choice: overwrite Dropbox's
+     * version with the Draft, reload Dropbox's version over the Draft, save
+     * the Draft as a copy next to the file (and open it, the Tab going back
+     * to Dropbox's version), or cancel and keep the Draft as it is. */
+    async resolveConflict(choice: ConflictChoice) {
+      const c = conflict();
+      if (!c) return;
+      setConflict(undefined);
+      const { tab } = c;
+      if (choice === "cancel" || !isOpen(tab)) return;
       try {
-        const res = await api.saveFile(tab.path, doc.toString(), tab.rev());
-        controls.get(tab)?.saved(doc, res.rev);
-        setError(undefined);
+        if (choice === "overwrite") return await saveOver(tab, c.rev);
+        if (choice === "reload") {
+          await reloadTab(tab);
+          setError(undefined);
+          return;
+        }
+        await saveAsCopy(tab);
       } catch (e) {
-        setError(saveFailure(tab, e));
+        report(e);
+      }
+    },
+
+    /** Checks every open Tab for changes made in Dropbox: one without a
+     * Draft quietly reloads, one with a Draft keeps it and the Owner is
+     * told. Run when the window regains focus. */
+    async checkOutsideChanges() {
+      if (checking) return;
+      checking = true;
+      try {
+        // A failed check (offline, file deleted) says nothing; saving reports it.
+        await Promise.all(tabs().map((tab) => checkTab(tab).catch(() => {})));
       } finally {
-        saving.delete(tab);
+        checking = false;
       }
     },
 
@@ -257,14 +421,8 @@ export function createAppState() {
       });
     },
 
-    async loadTree() {
-      try {
-        setEntries(await api.tree());
-        setError(undefined);
-      } catch (e) {
-        report(e);
-      }
-    },
+    /** Loads (or reloads) the tree from Dropbox. */
+    loadTree,
 
     toggleFolder(path: string) {
       const key = pathKey(path);
@@ -278,39 +436,9 @@ export function createAppState() {
       if (tab) this.close(tab.path);
     },
 
-    /** Opens a file and activates its Tab. Unless `pinned`, a file that isn't
-     * open yet goes into the Preview Tab, replacing the one there. */
-    async open(node: TreeNode, { pinned = false } = {}) {
-      if (node.kind !== "file" || node.unopenable) return;
-      const ticket = ++latestOpen;
-      try {
-        const file = indexOf(node.path) < 0 ? await fetchFile(node.path) : undefined;
-        if (ticket !== latestOpen) return;
-        const key = pathKey(node.path);
-        batch(() => {
-          // Checked again after the fetch: another open may have got there first.
-          if (file && indexOf(node.path) < 0) {
-            const [tab, control] = createTab(file);
-            controls.set(tab, control);
-            const previewPath = previewKey();
-            const preview = previewPath ? indexOf(previewPath) : -1;
-            const next = [...tabs()];
-            if (!pinned && preview >= 0) next[preview] = tab;
-            else next.push(tab);
-            setTabs(next);
-            if (!pinned) setPreviewKey(key);
-          } else if (pinned) {
-            pin(node.path);
-          }
-          setActiveKey(key);
-        });
-        setError(undefined);
-      } catch (e) {
-        if (e instanceof ApiError && e.code === "binary-file") {
-          setBinary(new Set(binary()).add(pathKey(node.path)));
-        }
-        report(e);
-      }
+    /** Opens a file from the tree; see openPath. */
+    async open(node: TreeNode, options: { pinned?: boolean } = {}) {
+      if (node.kind === "file" && !node.unopenable) await openPath(node.path, options);
     },
   };
 }

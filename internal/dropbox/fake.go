@@ -139,6 +139,20 @@ func (f *Fake) Download(_ context.Context, p string, maxSize int64) (File, error
 	return File{Entry: n.entry(), Content: append([]byte(nil), n.content...)}, nil
 }
 
+// Metadata implements Port.
+func (f *Fake) Metadata(_ context.Context, p string) (Entry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.revoked {
+		return Entry{}, ErrReauthorize
+	}
+	n, ok := f.nodes[key(p)]
+	if !ok {
+		return Entry{}, fmt.Errorf("%w: %s", ErrNotFound, p)
+	}
+	return n.entry(), nil
+}
+
 // UploadUpdate implements Port.
 func (f *Fake) UploadUpdate(_ context.Context, p string, content []byte, rev string) (Entry, error) {
 	f.mu.Lock()
@@ -153,6 +167,23 @@ func (f *Fake) UploadUpdate(_ context.Context, p string, content []byte, rev str
 	n.content = append([]byte(nil), content...)
 	n.rev = f.nextRev()
 	return n.entry(), nil
+}
+
+// Write puts content at p as another device would: a new revision over an
+// existing file, or a new file (and missing parents). Test mode uses it to
+// change files behind the app's back.
+func (f *Fake) Write(p string, content []byte) (Entry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if n, ok := f.nodes[key(p)]; ok {
+		if n.folder {
+			return Entry{}, fmt.Errorf("%w: %s", ErrNotFile, p)
+		}
+		n.content = append([]byte(nil), content...)
+		n.rev = f.nextRev()
+		return n.entry(), nil
+	}
+	return f.create(p, &node{content: append([]byte(nil), content...), rev: f.nextRev()})
 }
 
 // UploadNew implements Port.

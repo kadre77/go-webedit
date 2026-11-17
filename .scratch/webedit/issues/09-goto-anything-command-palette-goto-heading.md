@@ -12,3 +12,7 @@
 - [ ] Existing commands are registered (close Tab, next/previous Tab, save, go to line, and anything else already built)
 - [ ] Ctrl+R lists the active Markdown file's headings (from CodeMirror's Markdown syntax tree), indented by level, and jumps to the chosen one; for other languages it shows "no symbols"
 - [ ] Playwright tests cover Goto Anything ranking and opening, running a command from the palette, and jumping to a heading
+
+## Comments
+
+**2026-11-17 (from ticket 07):** Register Refresh (`state.loadTree`, reloads the tree from Dropbox) as a command; for now it's only a sidebar button.

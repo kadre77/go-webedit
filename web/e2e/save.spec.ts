@@ -108,7 +108,7 @@ test("a failed save keeps the Draft so the Owner can retry", async ({ page }) =>
   expect((await stored(page, file)).content).toBe("Shopping list: bread\n");
 });
 
-test("a save over a file changed elsewhere is refused and keeps the Draft", async ({ page, baseURL }) => {
+test("a save over a file changed elsewhere raises a Save Conflict and keeps the Draft", async ({ page, baseURL }) => {
   const file = fileFor("conflict");
   await openAndEdit(page, file, ": mine");
   // Another device saves the file first.
@@ -120,7 +120,7 @@ test("a save over a file changed elsewhere is refused and keeps the Draft", asyn
   expect(res.ok()).toBe(true);
 
   await page.keyboard.press("ControlOrMeta+s");
-  await expect(alert(page)).toContainText("changed in Dropbox");
+  await expect(page.getByRole("dialog", { name: "Save Conflict" })).toBeVisible();
   await expect(tab(page, file)).toHaveAttribute("data-modified", "true");
   await expect(editor(page)).toContainText("Shopping list: mine");
   expect((await stored(page, file)).content).toBe("Shopping list: theirs\n");

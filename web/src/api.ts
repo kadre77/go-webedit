@@ -87,6 +87,19 @@ export const api = {
   openFile(path: string): Promise<OpenedFile> {
     return getJSON(`/api/file?path=${encodeURIComponent(path)}`);
   },
+  /** The file's current revision in Dropbox, to tell whether it changed. */
+  async checkFile(path: string): Promise<string> {
+    return (await getJSON<SavedFile>(`/api/file/rev?path=${encodeURIComponent(path)}`)).rev;
+  },
+  /** Saves LF content as a new "conflicted copy" next to the file, leaving
+   * the file itself alone. Returns the copy's path and revision. */
+  saveCopy(path: string, content: string): Promise<SavedFile> {
+    return requestJSON("/api/file/copy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, content }),
+    });
+  },
   /** Saves LF content over the revision the file was opened (or last saved)
    * at. The server puts back the file's own line endings. Fails with code
    * "conflict" (and the current revision) if the file changed in Dropbox. */

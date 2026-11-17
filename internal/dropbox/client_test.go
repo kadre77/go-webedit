@@ -55,6 +55,7 @@ func newStubDropbox(t *testing.T) *stubDropbox {
 	mux.HandleFunc("POST /2/files/list_folder/continue", s.authed(s.listContinue))
 	mux.HandleFunc("POST /2/files/download", s.authed(s.download))
 	mux.HandleFunc("POST /2/files/upload", s.authed(s.upload))
+	mux.HandleFunc("POST /2/files/get_metadata", s.authed(s.getMetadata))
 	s.Server = httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s
@@ -251,9 +252,31 @@ func (s *stubDropbox) download(w http.ResponseWriter, r *http.Request) {
 	pathError(w, "not_found")
 }
 
-// upload answers like Dropbox's upload endpoint in update mode: it writes
-// only if the file's revision is the one given, and a write gives a new
-// revision.
+func (s *stubDropbox) getMetadata(w http.ResponseWriter, r *http.Request) {
+	var arg struct{ Path string }
+	json.NewDecoder(r.Body).Decode(&arg)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.allEntries() {
+		if e.Tag != "deleted" && strings.EqualFold(e.PathDisplay, arg.Path) {
+			writeJSON(w, 200, e)
+			return
+		}
+	}
+	pathError(w, "not_found")
+}
+
+func writeConflict(w http.ResponseWriter) {
+	writeJSON(w, 409, map[string]any{
+		"error_summary": "path/conflict/file/..",
+		"error": map[string]any{".tag": "path", "reason": map[string]any{
+			".tag": "conflict", "conflict": map[string]string{".tag": "file"}}},
+	})
+}
+
+// upload answers like Dropbox's upload endpoint. In update mode it writes
+// only if the file's revision is the one given; in add mode only if nothing
+// is at the path. A write gives a new revision.
 func (s *stubDropbox) upload(w http.ResponseWriter, r *http.Request) {
 	raw := r.Header.Get("Dropbox-API-Arg")
 	var arg struct {
@@ -269,23 +292,32 @@ func (s *stubDropbox) upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad Dropbox-API-Arg or Content-Type", 400)
 		return
 	}
-	if arg.Mode.Tag != "update" || arg.Autorename || !arg.StrictConflict {
-		s.t.Errorf("upload arg = %s, want update mode, no autorename, strict conflicts", raw)
+	if (arg.Mode.Tag != "update" && arg.Mode.Tag != "add") || arg.Autorename || !arg.StrictConflict {
+		s.t.Errorf("upload arg = %s, want update or add mode, no autorename, strict conflicts", raw)
 	}
 	content, _ := io.ReadAll(r.Body)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastArg = raw
+	if arg.Mode.Tag == "add" {
+		for _, e := range s.allEntries() {
+			if e.Tag != "deleted" && strings.EqualFold(e.PathDisplay, arg.Path) {
+				writeConflict(w)
+				return
+			}
+		}
+		s.revs++
+		f := stubFile{path: arg.Path, rev: fmt.Sprintf("0new%d", s.revs), content: content}
+		s.files = append(s.files, f)
+		writeJSON(w, 200, f.entry())
+		return
+	}
 	for i, f := range s.files {
 		if !strings.EqualFold(f.path, arg.Path) {
 			continue
 		}
 		if f.rev != arg.Mode.Update {
-			writeJSON(w, 409, map[string]any{
-				"error_summary": "path/conflict/file/..",
-				"error": map[string]any{".tag": "path", "reason": map[string]any{
-					".tag": "conflict", "conflict": map[string]string{".tag": "file"}}},
-			})
+			writeConflict(w)
 			return
 		}
 		s.revs++
@@ -497,6 +529,51 @@ func TestClientUploadsOnlyOverTheRevisionItWasGiven(t *testing.T) {
 		t.Errorf("stale revision: err = %v", err)
 	}
 	if f, _ := c.Download(ctx, "/Notes/Día.md", noLimit); string(f.Content) != "new\r\n" {
+		t.Errorf("a refused upload changed the file: %q", f.Content)
+	}
+}
+
+func TestClientReportsMetadataWithoutDownloading(t *testing.T) {
+	stub := newStubDropbox(t)
+	stub.folders = []string{"/Notes"}
+	stub.files = []stubFile{{path: "/Notes/Día.md", rev: "0a1", content: []byte("old\n")}}
+	c, _ := signedInClient(t, stub)
+
+	e, err := c.Metadata(ctx, "/notes/día.md")
+	if err != nil || e.Path != "/Notes/Día.md" || e.Rev != "0a1" || e.Size != 4 || e.Folder {
+		t.Errorf("file: %+v, %v", e, err)
+	}
+	if e, err := c.Metadata(ctx, "/notes"); err != nil || !e.Folder || e.Path != "/Notes" {
+		t.Errorf("folder: %+v, %v", e, err)
+	}
+	if _, err := c.Metadata(ctx, "/gone.md"); !errors.Is(err, dropbox.ErrNotFound) {
+		t.Errorf("missing: err = %v", err)
+	}
+}
+
+func TestClientUploadsNewFilesOnlyWhereNothingIs(t *testing.T) {
+	stub := newStubDropbox(t)
+	stub.folders = []string{"/Notes"}
+	stub.files = []stubFile{{path: "/Notes/Día.md", rev: "0a1", content: []byte("old\n")}}
+	c, _ := signedInClient(t, stub)
+
+	e, err := c.UploadNew(ctx, "/Notes/Día (copy).md", []byte("mine\n"))
+	if err != nil {
+		t.Fatalf("%v (Dropbox-API-Arg %s)", err, stub.lastArg)
+	}
+	if e.Path != "/Notes/Día (copy).md" || e.Rev == "" || e.Size != 5 {
+		t.Errorf("entry = %+v", e)
+	}
+	if f, err := c.Download(ctx, "/Notes/Día (copy).md", noLimit); err != nil || string(f.Content) != "mine\n" {
+		t.Errorf("after upload: %q, %v", f.Content, err)
+	}
+
+	for _, p := range []string{"/notes/día.md", "/Notes"} {
+		if _, err := c.UploadNew(ctx, p, []byte("x")); !errors.Is(err, dropbox.ErrAlreadyExists) {
+			t.Errorf("%s: err = %v, want already exists", p, err)
+		}
+	}
+	if f, _ := c.Download(ctx, "/Notes/Día.md", noLimit); string(f.Content) != "old\n" {
 		t.Errorf("a refused upload changed the file: %q", f.Content)
 	}
 }

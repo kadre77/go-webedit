@@ -69,6 +69,9 @@ type Port interface {
 	// Download returns a file's content and current revision. A file larger
 	// than maxSize bytes fails with ErrTooLarge without its content being read.
 	Download(ctx context.Context, path string, maxSize int64) (File, error)
+	// Metadata returns a file's or folder's entry, with a file's current
+	// revision, without its content.
+	Metadata(ctx context.Context, path string) (Entry, error)
 	// UploadUpdate overwrites an existing file only if its revision is still
 	// rev; otherwise it fails with ErrConflict.
 	UploadUpdate(ctx context.Context, path string, content []byte, rev string) (Entry, error)

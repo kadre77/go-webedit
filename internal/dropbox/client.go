@@ -16,7 +16,7 @@ import (
 )
 
 // errNotYet marks Port operations the real adapter doesn't implement yet
-// (file management arrives with ticket 10).
+// (the rest of file management arrives with ticket 10).
 var errNotYet = errors.New("dropbox: not implemented yet")
 
 // errWriteConflict is Dropbox refusing a write because of what is at the
@@ -352,13 +352,23 @@ func (c *Client) Download(ctx context.Context, path string, maxSize int64) (File
 	return File{Entry: m.entry(), Content: content}, nil
 }
 
-// UploadUpdate implements Port. Dropbox's update mode writes only over the
-// given revision; with autorename off and strict conflicts on, any other
-// revision is a conflict instead of a renamed copy.
-func (c *Client) UploadUpdate(ctx context.Context, path string, content []byte, rev string) (Entry, error) {
+// Metadata implements Port.
+func (c *Client) Metadata(ctx context.Context, path string) (Entry, error) {
+	var m metadata
+	if err := c.rpc(ctx, "/2/files/get_metadata", map[string]string{"path": path}, &m); err != nil {
+		return Entry{}, err
+	}
+	return m.entry(), nil
+}
+
+// upload writes content to path in the given Dropbox write mode. With
+// autorename off and strict conflicts on, Dropbox refuses a write that
+// doesn't fit the mode instead of making a renamed copy; upload then fails
+// with refused.
+func (c *Client) upload(ctx context.Context, path string, content []byte, mode map[string]string, refused error) (Entry, error) {
 	arg, err := apiArg(map[string]any{
 		"path":            path,
-		"mode":            map[string]string{".tag": "update", "update": rev},
+		"mode":            mode,
 		"autorename":      false,
 		"mute":            true,
 		"strict_conflict": true,
@@ -375,7 +385,7 @@ func (c *Client) UploadUpdate(ctx context.Context, path string, content []byte, 
 		return req, err
 	})
 	if errors.Is(err, errWriteConflict) {
-		return Entry{}, fmt.Errorf("%w (%v)", ErrConflict, err)
+		return Entry{}, fmt.Errorf("%w (%v)", refused, err)
 	}
 	if err != nil {
 		return Entry{}, err
@@ -389,9 +399,16 @@ func (c *Client) UploadUpdate(ctx context.Context, path string, content []byte, 
 	return m.entry(), nil
 }
 
-// UploadNew implements Port (not yet: ticket 10).
-func (c *Client) UploadNew(context.Context, string, []byte) (Entry, error) {
-	return Entry{}, errNotYet
+// UploadUpdate implements Port with Dropbox's update mode, which writes only
+// over the given revision.
+func (c *Client) UploadUpdate(ctx context.Context, path string, content []byte, rev string) (Entry, error) {
+	return c.upload(ctx, path, content, map[string]string{".tag": "update", "update": rev}, ErrConflict)
+}
+
+// UploadNew implements Port with Dropbox's add mode, which writes only where
+// nothing is. Dropbox creates missing parent folders.
+func (c *Client) UploadNew(ctx context.Context, path string, content []byte) (Entry, error) {
+	return c.upload(ctx, path, content, map[string]string{".tag": "add"}, ErrAlreadyExists)
 }
 
 // CreateFolder implements Port (not yet: ticket 10).

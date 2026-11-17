@@ -29,6 +29,9 @@ type Options struct {
 	SessionSecret  []byte
 	Now            func() time.Time // defaults to time.Now
 	Logger         *slog.Logger     // defaults to slog.Default()
+	// TestFake, set only in test mode, is the fake Dropbox behind Dropbox.
+	// It enables a hook that changes files in it as another device would.
+	TestFake *dropbox.Fake
 }
 
 // New returns the server's HTTP handler.
@@ -63,10 +66,15 @@ func New(o Options) *echo.Echo {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 	api.GET("/session", a.session)
-	fh := &fileHandlers{port: o.Dropbox}
+	fh := &fileHandlers{port: o.Dropbox, now: o.Now}
 	api.GET("/tree", fh.tree, a.requireSession)
 	api.GET("/file", fh.open, a.requireSession)
 	api.PUT("/file", fh.save, a.requireSession)
+	api.GET("/file/rev", fh.check, a.requireSession)
+	api.POST("/file/copy", fh.saveCopy, a.requireSession)
+	if o.TestFake != nil {
+		api.PUT("/test/file", changeFakeFile(o.TestFake), a.requireSession)
+	}
 	notFound := func(echo.Context) error { return echo.ErrNotFound }
 	e.Any("/api", notFound)
 	api.Any("/*", notFound)
@@ -185,3 +193,25 @@ type Error struct {
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
 func (e *Error) Unwrap() error { return e.Err }
+
+// changeFakeFile is the test-mode hook: it writes a file in the fake
+// Dropbox as another device would, so browser tests can provoke Save
+// Conflicts and outside changes. The body is {path, content}, content
+// written as is.
+func changeFakeFile(fake *dropbox.Fake) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var req contentRequest
+		if err := decodeContentBody(c, &req); err != nil {
+			return err
+		}
+		p, err := cleanPath(req.Path)
+		if err != nil {
+			return err
+		}
+		e, err := fake.Write(p, []byte(req.Content))
+		if err != nil {
+			return dropboxError(err)
+		}
+		return c.JSON(http.StatusOK, fileRev{Path: apiPath(e.Path), Rev: e.Rev})
+	}
+}

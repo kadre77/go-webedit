@@ -15,7 +15,7 @@ import {
   lineNumbers,
   rectangularSelection,
 } from "@codemirror/view";
-import { createEffect, on, onCleanup, onMount } from "solid-js";
+import { createEffect, on, onCleanup, onMount, untrack } from "solid-js";
 import type { Tab } from "./appState";
 import { detectIndentUnit } from "./indentation";
 import { languageFor } from "./languages";
@@ -59,7 +59,9 @@ type Snapshot = { state: EditorState; scroll: StateEffect<unknown> };
 
 // One editor view, shared by every Tab. Switching Tabs stores the outgoing
 // Tab's state (content, cursor, undo history) and scroll position, and puts
-// back the incoming Tab's, so each Tab keeps its own.
+// back the incoming Tab's, so each Tab keeps its own. When a Tab's content is
+// replaced from outside the editor (reloaded from Dropbox), its editor starts
+// afresh on the new content, keeping the cursor and scroll where they can be.
 export function Editor(props: { tab: Tab; onEdit: (tab: Tab, doc: Text) => void }) {
   let host!: HTMLDivElement;
   let view!: EditorView;
@@ -119,6 +121,22 @@ export function Editor(props: { tab: Tab; onEdit: (tab: Tab, doc: Text) => void 
         },
       ),
     );
+
+    // Runs after the switch above. Edits made in the editor give the Tab the
+    // editor's own doc, so any other doc was replaced from outside.
+    createEffect(() => {
+      const tab = props.tab;
+      const doc = tab.doc();
+      untrack(() => {
+        if (shown !== tab || doc === view.state.doc) return;
+        const head = Math.min(view.state.selection.main.head, doc.length);
+        const scroll = view.scrollSnapshot();
+        const hadFocus = view.hasFocus;
+        view.setState(createState(tab));
+        view.dispatch({ selection: { anchor: head }, effects: scroll, annotations: Transaction.addToHistory.of(false) });
+        if (hadFocus) view.focus();
+      });
+    });
   });
 
   return <div class="editor" ref={host} />;
