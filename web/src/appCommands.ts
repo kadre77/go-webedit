@@ -67,9 +67,9 @@ export function useAppCommands(app: {
   }));
 
   const settingsCommands: Command[] = [
-    { name: "Increase Font Size", shortcut: "Mod+=", run: () => settings.setFontSize(settings.fontSize() + 1) },
-    { name: "Decrease Font Size", shortcut: "Mod+-", run: () => settings.setFontSize(settings.fontSize() - 1) },
-    { name: "Reset Font Size", shortcut: "Mod+0", run: () => settings.setFontSize(fontSizes.default) },
+    { name: "Increase Font Size", run: () => settings.setFontSize(settings.fontSize() + 1) },
+    { name: "Decrease Font Size", run: () => settings.setFontSize(settings.fontSize() - 1) },
+    { name: "Reset Font Size", run: () => settings.setFontSize(fontSizes.default) },
     { name: "Toggle Word Wrap", run: () => settings.setWordWrap(!settings.wordWrap()) },
     ...tabWidths.map((width) => ({ name: `Default Tab Width: ${width}`, run: () => settings.setTabWidth(width) })),
     { name: "Default Indentation: Spaces", run: () => settings.setUseTabs(false) },
