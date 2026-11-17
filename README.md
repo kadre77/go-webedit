@@ -24,6 +24,8 @@ Requires Go, Node with corepack (for pnpm), and Docker for the image.
 | `make build`     | Builds the frontend and `bin/webedit`                                          |
 | `make docker`    | Builds the production image                                                    |
 
+Try it locally: `scripts/dev-test-mode.sh [folder]` builds and runs the app in test mode with a fake Dropbox seeded from `folder` (default `web/e2e/fixtures`). Open `http://localhost:8080/auth/signin`; set `PORT` to use another port.
+
 First run of the e2e suite: `cd web && corepack pnpm install && corepack pnpm exec playwright install chromium`.
 
 ## Configuration
