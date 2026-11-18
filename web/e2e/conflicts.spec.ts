@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { clickItem, showTree } from "./ui";
 
 // Fixtures: web/e2e/fixtures/Conflicts/<project>-<test>.md, each "Shopping
 // list\n". Each test changes its own file, since the projects and tests run
@@ -31,8 +32,8 @@ async function changeElsewhere(page: Page, path: string, content: string) {
 
 /** Opens Conflicts/<file>. */
 async function openFile(page: Page, file: string) {
-  await item(page, "Conflicts").click();
-  await item(page, file).click();
+  await clickItem(page, "Conflicts");
+  await clickItem(page, file);
   await expect(editor(page)).toContainText("Shopping list");
 }
 
@@ -107,7 +108,6 @@ test("Save Conflict: save mine as a copy opens the copy and leaves the original"
   await expect(editor(page)).toHaveText("Shopping list: mine");
   const copyName = (await copy.textContent())!;
   expect(copyName).toMatch(new RegExp(`^${test.info().project.name}-copy \\(conflicted copy .+\\)\\.md$`));
-  await expect(item(page, copyName)).toBeVisible();
   expect(await stored(page, `Conflicts/${copyName}`)).toBe("Shopping list: mine\n");
 
   // The original is untouched in Dropbox, and its Tab now shows their version.
@@ -115,6 +115,8 @@ test("Save Conflict: save mine as a copy opens the copy and leaves the original"
   await tab(page, file).click();
   await expect(editor(page)).toHaveText("Shopping list: theirs");
   await expect(tab(page, file)).not.toHaveAttribute("data-modified");
+  await showTree(page);
+  await expect(item(page, copyName)).toBeVisible();
 });
 
 test("Save Conflict: cancelling keeps the Draft unsaved", async ({ page }) => {
@@ -130,7 +132,7 @@ test("Save Conflict: cancelling keeps the Draft unsaved", async ({ page }) => {
 test("on focus, a Tab without a Draft quietly reloads a file changed elsewhere", async ({ page }) => {
   const file = fileFor("quiet");
   await openFile(page, file);
-  await item(page, "readme.md").dblclick(); // a second Tab, unchanged in Dropbox
+  await clickItem(page, "readme.md", { double: true }); // a second Tab, unchanged in Dropbox
   await tab(page, file).click();
 
   await changeElsewhere(page, `Conflicts/${file}`, "Shopping list: from my phone\n");
@@ -166,7 +168,7 @@ test("on focus, a Tab with a Draft keeps it and says the file changed elsewhere"
 
 test("Refresh reloads the tree from Dropbox", async ({ page }) => {
   const added = fileFor("added");
-  await item(page, "Conflicts").click();
+  await clickItem(page, "Conflicts");
   await expect(item(page, fileFor("quiet"))).toBeVisible();
   await changeElsewhere(page, `Conflicts/${added}`, "New\n");
   await expect(item(page, added)).toHaveCount(0);

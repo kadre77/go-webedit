@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { clickItem, showTree } from "./ui";
 
 // Fixtures: web/e2e/fixtures/Saving/<project>-<test>.md, each "Shopping list\n".
 // Tests that write get a file of their own, since the projects and tests run
@@ -22,8 +23,8 @@ async function stored(page: Page, file: string) {
 
 /** Opens Saving/<file> and types at the end of its first line. */
 async function openAndEdit(page: Page, file: string, text: string) {
-  await item(page, "Saving").click();
-  await item(page, file).click();
+  await clickItem(page, "Saving");
+  await clickItem(page, file);
   await expect(editor(page)).toContainText("Shopping list");
   await editor(page).locator(".cm-line").first().click();
   await expect(page.locator(".cm-editor")).toHaveClass(/cm-focused/);
@@ -37,6 +38,7 @@ test.beforeEach(async ({ page }) => {
 
 test("Ctrl+S saves the active Tab to Dropbox and clears its modified dot", async ({ page }) => {
   const file = fileFor("save");
+  await showTree(page);
   await expect(item(page, "Saving")).toBeVisible();
   await openAndEdit(page, file, ": eggs");
   await expect(tab(page, file)).toHaveAttribute("data-modified", "true");
@@ -54,7 +56,7 @@ test("Ctrl+S saves the active Tab to Dropbox and clears its modified dot", async
 });
 
 test("undoing back to the saved content clears the modified dot", async ({ page }) => {
-  await item(page, "readme.md").click();
+  await clickItem(page, "readme.md");
   await editor(page).locator(".cm-line").first().click();
   await page.keyboard.press("End");
   await page.keyboard.type("!");
@@ -64,7 +66,7 @@ test("undoing back to the saved content clears the modified dot", async ({ page 
 });
 
 test("closing a Tab with a Draft asks first", async ({ page }) => {
-  await item(page, "readme.md").click();
+  await clickItem(page, "readme.md");
   await editor(page).locator(".cm-line").first().click();
   await page.keyboard.press("End");
   await page.keyboard.type("!");
@@ -87,7 +89,7 @@ test("closing a Tab without a Draft doesn't ask", async ({ page }) => {
   page.on("dialog", (d) => {
     throw new Error(`unexpected dialog: ${d.message()}`);
   });
-  await item(page, "readme.md").click();
+  await clickItem(page, "readme.md");
   await page.getByRole("button", { name: "Close readme.md" }).click();
   await expect(tabs(page)).toHaveCount(0);
 });

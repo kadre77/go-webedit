@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { clickItem, showTree } from "./ui";
 
 // Fixtures: web/e2e/fixtures. Notes/Today.md is "# Today\n\nBuy milk.\n";
 // Goto/To/Day/plan.md spells "today" across its folders.
@@ -10,6 +11,7 @@ const options = (page: Page, name: string) => finder(page, name).getByRole("opti
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/auth/signin");
+  await showTree(page);
   await expect(page.getByRole("tree").getByRole("treeitem", { name: "Notes" })).toBeVisible();
 });
 
@@ -38,7 +40,7 @@ test.describe("Goto Anything", () => {
   });
 
   test("the chosen file opens in the Preview Tab, replacing the one there", async ({ page }) => {
-    await page.getByRole("tree").getByRole("treeitem", { name: "readme.md" }).click();
+    await clickItem(page, "readme.md");
     await expect(tab(page, "readme.md")).toHaveAttribute("data-preview", "true");
     await page.keyboard.press("Control+p");
     await finder(page, "Goto Anything").getByRole("combobox").fill("today");
@@ -50,9 +52,9 @@ test.describe("Goto Anything", () => {
   test("while it's open, Tab shortcuts leave the Tabs alone but the finder shortcuts switch finders", async ({
     page,
   }) => {
-    await page.getByRole("tree").getByRole("treeitem", { name: "readme.md" }).dblclick();
-    await page.getByRole("tree").getByRole("treeitem", { name: "Goto" }).click();
-    await page.getByRole("tree").getByRole("treeitem", { name: "Outline.md" }).dblclick();
+    await clickItem(page, "readme.md", { double: true });
+    await clickItem(page, "Goto");
+    await clickItem(page, "Outline.md", { double: true });
     await expect(tab(page, "Outline.md")).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Control+p");
     await expect(finder(page, "Goto Anything")).toBeVisible();
@@ -84,7 +86,7 @@ test.describe("Command Palette", () => {
   });
 
   test("Enter runs the chosen command", async ({ page }) => {
-    await page.getByRole("tree").getByRole("treeitem", { name: "readme.md" }).dblclick();
+    await clickItem(page, "readme.md", { double: true });
     await expect(tab(page, "readme.md")).toBeVisible();
     await page.keyboard.press("Control+Shift+p");
     await finder(page, "Command Palette").getByRole("combobox").fill("close tab");
@@ -94,7 +96,7 @@ test.describe("Command Palette", () => {
   });
 
   test("Go to Line runs in the editor", async ({ page }) => {
-    await page.getByRole("tree").getByRole("treeitem", { name: "readme.md" }).dblclick();
+    await clickItem(page, "readme.md", { double: true });
     await expect(editor(page)).toContainText("Read me first.");
     await page.keyboard.press("Control+Shift+p");
     await finder(page, "Command Palette").getByRole("combobox").fill("go to line");

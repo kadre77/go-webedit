@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { clickItem } from "./ui";
 
 // Fixtures: web/e2e/fixtures/Drafts/<project>-<test>.md, each "Shopping
 // list\n". Each test has its own file, since the projects and tests run in
@@ -15,8 +16,8 @@ const fileFor = (name: string) => `${test.info().project.name}-${name}.md`;
 
 /** Opens Drafts/<file> as a normal Tab. */
 async function openFile(page: Page, file: string) {
-  await item(page, "Drafts").click();
-  await item(page, file).dblclick();
+  await clickItem(page, "Drafts");
+  await clickItem(page, file, { double: true });
   await expect(editor(page)).toContainText("Shopping list");
 }
 
@@ -40,10 +41,10 @@ test.beforeEach(async ({ page }) => {
 
 test("a Draft and the open Tabs survive a reload", async ({ page }) => {
   const file = fileFor("restore");
-  await item(page, "readme.md").dblclick();
+  await clickItem(page, "readme.md", { double: true });
   await openFile(page, file);
-  await item(page, "Notes").click();
-  await item(page, "Today.md").click(); // the Preview Tab
+  await clickItem(page, "Notes");
+  await clickItem(page, "Today.md"); // the Preview Tab
   await tab(page, file).click();
   await typeAtEnd(page, ": eggs");
   await expect(tab(page, file)).toHaveAttribute("data-modified", "true");
@@ -174,7 +175,7 @@ test("a restored Draft is kept when Dropbox can't be reached, and saves once it 
 });
 
 test("leaving the page with a Draft asks first", async ({ page }) => {
-  await item(page, "readme.md").click();
+  await clickItem(page, "readme.md");
   await typeAtEnd(page, "!");
   await expect(tab(page, "readme.md")).toHaveAttribute("data-modified", "true");
 

@@ -731,9 +731,9 @@ export function createAppState() {
     /** Opens a Text File by path; see openPath. */
     openFile: openPath,
 
-    /** Opens a file from the tree; see openPath. */
-    async open(node: TreeNode, options: { pinned?: boolean } = {}) {
-      if (node.kind === "file" && !node.unopenable) await openPath(node.path, options);
+    /** Opens a file from the tree; see openPath. Says whether it opened. */
+    async open(node: TreeNode, options: { pinned?: boolean } = {}): Promise<boolean> {
+      return node.kind === "file" && !node.unopenable && (await openPath(node.path, options));
     },
   };
 }

@@ -1,5 +1,5 @@
 import { EditorView } from "@codemirror/view";
-import { Match, onCleanup, onMount, Show, Switch, createSignal } from "solid-js";
+import { createEffect, Match, on, onCleanup, onMount, Show, Switch, createSignal } from "solid-js";
 import { api, setAuthLostHandler } from "./api";
 import { useAppCommands } from "./appCommands";
 import { createAppState } from "./appState";
@@ -8,6 +8,8 @@ import { ConflictDialog } from "./ConflictDialog";
 import { Editor } from "./Editor";
 import { createFileActions, PathPromptDialog } from "./fileActions";
 import { CommandPalette, type FinderMode, GotoAnything, GotoHeading } from "./finders";
+import { createIsPhone, useDrawerSwipes, useVisualViewportHeight } from "./layout";
+import { PhoneToolbar } from "./PhoneToolbar";
 import { createSettings } from "./settings";
 import { Sidebar } from "./Sidebar";
 import { SignIn } from "./SignIn";
@@ -78,9 +80,28 @@ function SignedInApp() {
   useOutsideChangeChecks(state);
   useDraftGuard(state);
 
+  // On a phone the sidebar is a drawer over the editor. It closes once a
+  // file is opened, wherever from (seen as the active Tab changing), and when
+  // the layout goes back to desktop. The Sidebar also closes it when the file
+  // tapped is already the active Tab's, which changes nothing here.
+  const isPhone = createIsPhone();
+  const [drawerOpen, setDrawerOpen] = createSignal(false);
+  createEffect(on(() => state.activeTab()?.path, () => setDrawerOpen(false), { defer: true }));
+  createEffect(() => isPhone() || setDrawerOpen(false));
+  useDrawerSwipes({ enabled: isPhone, isOpen: drawerOpen, setOpen: setDrawerOpen });
+  useVisualViewportHeight();
+
   return (
-    <div class="layout">
-      <Sidebar state={state} actions={actions} />
+    <div class="layout" classList={{ phone: isPhone() }}>
+      <Sidebar
+        state={state}
+        actions={actions}
+        drawerOpen={drawerOpen()}
+        onFileOpened={() => setDrawerOpen(false)}
+      />
+      <Show when={isPhone() && drawerOpen()}>
+        <button type="button" class="scrim" aria-label="Close the file list" onClick={() => setDrawerOpen(false)} />
+      </Show>
       <main class="main">
         <Show when={state.error()}>
           {(message) => (
@@ -95,7 +116,7 @@ function SignedInApp() {
           fallback={
             <div class="placeholder">
               <h1>webedit</h1>
-              <p>Pick a file in the sidebar.</p>
+              <p>{isPhone() ? "Pick a file from Files." : "Pick a file in the sidebar."}</p>
             </div>
           }
         >
@@ -139,6 +160,16 @@ function SignedInApp() {
             />
           </Match>
         </Switch>
+        <Show when={isPhone()}>
+          <PhoneToolbar
+            drawerOpen={drawerOpen()}
+            onToggleDrawer={() => setDrawerOpen(!drawerOpen())}
+            canSave={!!state.activeTab()}
+            onSave={() => void state.save()}
+            onGotoAnything={() => openFinder({ kind: "files" })}
+            onCommandPalette={() => openFinder({ kind: "commands" })}
+          />
+        </Show>
         <Show when={actions.prompt()} keyed>
           {(prompt) => <PathPromptDialog actions={actions} prompt={prompt} />}
         </Show>

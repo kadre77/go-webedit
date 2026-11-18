@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { clickItem, showTree } from "./ui";
 
 const tree = (page: Page) => page.getByRole("tree");
 const signInLink = (page: Page) => page.getByRole("link", { name: "Sign in with Dropbox" });
@@ -9,12 +10,14 @@ test("a signed-out visit shows sign-in, and signing in shows the Root Folder", a
   await expect(tree(page)).toHaveCount(0);
 
   await signInLink(page).click();
+  await showTree(page);
   await expect(tree(page).getByRole("treeitem", { name: "readme.md" })).toBeVisible();
   await expect(page).toHaveURL("/");
 });
 
 test("signing out returns to sign-in and stays signed out", async ({ page }) => {
   await page.goto("/auth/signin");
+  await showTree(page);
   await expect(tree(page)).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
@@ -49,7 +52,7 @@ test("a session that ends mid-use goes back to sign-in", async ({ page }) => {
       body: JSON.stringify({ code: "unauthorized", message: "Sign in to continue." }),
     }),
   );
-  await tree(page).getByRole("treeitem", { name: "readme.md" }).click();
+  await clickItem(page, "readme.md");
   await expect(signInLink(page)).toBeVisible();
   await expect(tree(page)).toHaveCount(0);
 });
@@ -68,7 +71,7 @@ test("the app runs under its Content Security Policy without violations", async 
   page.on("pageerror", (err) => violations.push(err.message));
 
   await page.goto("/auth/signin");
-  await tree(page).getByRole("treeitem", { name: "readme.md" }).click();
+  await clickItem(page, "readme.md");
   await expect(page.locator(".cm-content")).toContainText("Read me first.");
   // CodeMirror's own styles applied: the editor scroller is a flex container.
   await expect(page.locator(".cm-editor")).toHaveCSS("display", "flex");

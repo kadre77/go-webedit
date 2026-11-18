@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { clickItem, showTree } from "./ui";
 
 // Fixtures: web/e2e/fixtures. Code/fruit.txt is "apple pie\napple tart\npear\n"
 // (no indentation), Code/main.go is indented with tabs, readme.md is two lines.
@@ -22,12 +23,13 @@ async function runCommand(page: Page, name: string) {
 }
 
 async function openReadme(page: Page) {
-  await item(page, "readme.md").dblclick();
+  await clickItem(page, "readme.md", { double: true });
   await expect(lines(page).first()).toHaveText("Read me first.");
 }
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/auth/signin");
+  await showTree(page);
   await expect(item(page, "readme.md")).toBeVisible();
 });
 
@@ -58,8 +60,8 @@ test("font size and word wrap are kept across a reload", async ({ page, isMobile
 
 test("a change applies at once to every open Tab", async ({ page }) => {
   await openReadme(page);
-  await item(page, "Code").click();
-  await item(page, "fruit.txt").dblclick();
+  await clickItem(page, "Code");
+  await clickItem(page, "fruit.txt", { double: true });
   await expect(lines(page).first()).toHaveText("apple pie");
   const start = await fontSize(page);
   await runCommand(page, "Increase Font Size");
@@ -81,8 +83,8 @@ test.describe("default indentation", () => {
 
   test("is used where the file's indentation can't be detected", async ({ page }) => {
     await runCommand(page, "Default Tab Width: 2");
-    await item(page, "Code").click();
-    await item(page, "fruit.txt").dblclick();
+    await clickItem(page, "Code");
+    await clickItem(page, "fruit.txt", { double: true });
     await indentFirstLine(page);
     await exactText(page, 0).toBe("  apple pie");
   });
@@ -90,8 +92,8 @@ test.describe("default indentation", () => {
   test("is kept across a reload", async ({ page }) => {
     await runCommand(page, "Default Indentation: Tabs");
     await page.reload();
-    await item(page, "Code").click();
-    await item(page, "fruit.txt").dblclick();
+    await clickItem(page, "Code");
+    await clickItem(page, "fruit.txt", { double: true });
     await indentFirstLine(page);
     await exactText(page, 0).toBe("\tapple pie");
   });
@@ -99,8 +101,8 @@ test.describe("default indentation", () => {
   test("leaves a file whose indentation is detected alone", async ({ page }) => {
     await runCommand(page, "Default Indentation: Spaces");
     await runCommand(page, "Default Tab Width: 8");
-    await item(page, "Code").click();
-    await item(page, "main.go").dblclick();
+    await clickItem(page, "Code");
+    await clickItem(page, "main.go", { double: true });
     await indentFirstLine(page);
     await exactText(page, 0).toBe("\t//go:build ignore");
   });

@@ -73,10 +73,15 @@ body,
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
+  -webkit-user-select: none;
+  /* No iOS link preview or callout on a long-press: it opens the tree's menu. */
+  -webkit-touch-callout: none;
 }
 
-.row:hover {
-  background: var(--bg-hover);
+@media (hover: hover) {
+  .row:hover {
+    background: var(--bg-hover);
+  }
 }
 
 .row.active {
@@ -213,20 +218,29 @@ body,
   opacity: 0.6;
 }
 
-.tab-close:hover {
-  opacity: 1;
-}
-
-/* A Tab with a Draft shows a dot instead of the close cross, until hovered. */
+/* A Tab with a Draft shows a dot instead of the close cross, until hovered.
+ * Touch screens leave :hover stuck after a tap, so only real hovering counts. */
 .tab-dot,
-.tab.modified .tab-x,
-.tab.modified:hover .tab-dot {
+.tab.modified .tab-x {
   display: none;
 }
 
-.tab.modified .tab-dot,
-.tab.modified:hover .tab-x {
+.tab.modified .tab-dot {
   display: inline;
+}
+
+@media (hover: hover) {
+  .tab-close:hover {
+    opacity: 1;
+  }
+
+  .tab.modified:hover .tab-dot {
+    display: none;
+  }
+
+  .tab.modified:hover .tab-x {
+    display: inline;
+  }
 }
 
 .dialog {
@@ -438,4 +452,112 @@ body,
 .dialog-buttons button:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* The phone layout: the sidebar becomes a drawer over the editor, the Tabs a
+ * compact strip, and a toolbar runs along the bottom. The app fills the part
+ * of the screen the on-screen keyboard leaves visible. */
+.phone-toolbar {
+  display: flex;
+  flex: none;
+  gap: 0.25rem;
+  padding: 0.25rem 0.25rem calc(0.25rem + env(safe-area-inset-bottom));
+  background: var(--bg-sidebar);
+  border-top: 1px solid var(--bg-hover);
+}
+
+.phone-toolbar button {
+  flex: 1;
+  min-height: 2.75rem;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--fg);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  touch-action: manipulation;
+}
+
+.phone-toolbar button:active,
+.phone-toolbar button[aria-expanded="true"] {
+  background: var(--bg-active);
+}
+
+.phone-toolbar button.primary {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.phone-toolbar button:disabled {
+  color: var(--fg-dim);
+  opacity: 0.6;
+}
+
+.scrim {
+  display: none;
+}
+
+.layout.phone {
+  /* The toolbar's height, which the drawer and scrim stop short of, so the
+   * toolbar stays usable with the drawer open. */
+  --toolbar-height: calc(3.25rem + 1px + env(safe-area-inset-bottom));
+  position: relative;
+  grid-template-columns: 1fr;
+  height: var(--app-height, 100%);
+  overflow: hidden;
+}
+
+.layout.phone .sidebar {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  left: 0;
+  bottom: var(--toolbar-height);
+  width: min(20rem, 85vw);
+  font-size: 1rem;
+  box-shadow: 4px 0 18px rgb(0 0 0 / 0.4);
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition:
+    transform 0.2s ease,
+    visibility 0s linear 0.2s;
+}
+
+.layout.phone .sidebar.open {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.2s ease;
+}
+
+.layout.phone .scrim {
+  display: block;
+  position: absolute;
+  z-index: 4;
+  inset: 0 0 var(--toolbar-height);
+  padding: 0;
+  border: none;
+  background: rgb(0 0 0 / 0.4);
+}
+
+.layout.phone .row {
+  min-height: 2.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.layout.phone .sidebar-footer button {
+  min-height: 2.5rem;
+}
+
+.layout.phone .tab-label {
+  padding: 0.6rem 0.25rem 0.6rem 0.75rem;
+}
+
+.layout.phone .tab {
+  max-width: 10rem;
+}
+
+.layout.phone .tab-close {
+  align-self: stretch;
+  min-width: 2rem;
 }

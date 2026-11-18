@@ -6,8 +6,17 @@ import { folderOf } from "./paths";
 const marks = { "too-large": "too large", binary: "binary" } as const;
 
 // The file tree, rendered as a flat list of visible rows (an ARIA tree with
-// aria-level), so each row's accessible name is just its own label.
-export function Sidebar(props: { state: AppState; actions: FileActions }) {
+// aria-level), so each row's accessible name is just its own label. On a
+// phone it's a drawer, and a long-press opens the menu a right-click does on
+// desktop.
+export function Sidebar(props: {
+  state: AppState;
+  actions: FileActions;
+  /** Whether the phone layout's drawer is open; ignored on desktop. */
+  drawerOpen: boolean;
+  /** Called when a file is opened from the tree. */
+  onFileOpened(): void;
+}) {
   const state = props.state;
   const [menu, setMenu] = createSignal<MenuAt>();
   const openMenu = (e: MouseEvent, node?: TreeNode) => {
@@ -15,6 +24,7 @@ export function Sidebar(props: { state: AppState; actions: FileActions }) {
     e.stopPropagation();
     setMenu({ x: e.clientX, y: e.clientY, node });
   };
+  const longPress = createLongPress((x, y, node) => setMenu({ x, y, node }));
   // Scroll the active Tab's file into view when the active Tab changes (after
   // the tree has expanded to show it), not whenever the rows are rebuilt.
   const rows = new Map<string, HTMLElement>();
@@ -24,11 +34,13 @@ export function Sidebar(props: { state: AppState; actions: FileActions }) {
     }),
   );
 
-  const activate = (node: TreeNode) =>
-    node.kind === "folder" ? state.toggleFolder(node.path) : void state.open(node);
+  const activate = (node: TreeNode) => {
+    if (node.kind === "folder") return state.toggleFolder(node.path);
+    void state.open(node).then((opened) => opened && props.onFileOpened());
+  };
 
   return (
-    <nav class="sidebar" aria-label="Files">
+    <nav id="sidebar" class="sidebar" classList={{ open: props.drawerOpen }} aria-label="Files">
       <div class="tree" role="tree" aria-label="Root Folder" onContextMenu={(e) => openMenu(e)}>
         <For each={state.visibleRows()}>
           {(node) => (
@@ -51,7 +63,8 @@ export function Sidebar(props: { state: AppState; actions: FileActions }) {
                 rows.set(pathKey(node.path), el);
                 onCleanup(() => rows.get(pathKey(node.path)) === el && rows.delete(pathKey(node.path)));
               }}
-              onClick={() => activate(node)}
+              onClick={() => longPress.tookClick() || activate(node)}
+              onPointerDown={(e) => longPress.start(e, node)}
               onContextMenu={(e) => openMenu(e, node)}
               onDblClick={() => node.kind === "file" && void state.open(node, { pinned: true })}
               onKeyDown={(e) => {
@@ -86,6 +99,54 @@ export function Sidebar(props: { state: AppState; actions: FileActions }) {
       </div>
     </nav>
   );
+}
+
+/** How long a touch must be held to count as a long-press, and how far it
+ * may wander before it's a scroll instead. */
+const longPressMs = 500;
+const longPressSlop = 10;
+
+/** Long-press on a touch screen. Android's Chrome turns one into a
+ * contextmenu event by itself, but iOS's Safari doesn't, so it's timed here.
+ * The click that may follow the touch is swallowed, so the press doesn't
+ * also open the file. */
+function createLongPress(onPress: (x: number, y: number, node: TreeNode) => void) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let pressed = false;
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = undefined;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", cancel);
+    window.removeEventListener("pointercancel", cancel);
+  };
+  let from = { x: 0, y: 0 };
+  const onMove = (e: PointerEvent) => {
+    if (Math.hypot(e.clientX - from.x, e.clientY - from.y) > longPressSlop) cancel();
+  };
+  onCleanup(cancel);
+  return {
+    start(e: PointerEvent, node: TreeNode) {
+      cancel();
+      pressed = false;
+      if (e.pointerType !== "touch") return;
+      from = { x: e.clientX, y: e.clientY };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", cancel);
+      window.addEventListener("pointercancel", cancel);
+      timer = setTimeout(() => {
+        cancel();
+        pressed = true;
+        onPress(from.x, from.y, node);
+      }, longPressMs);
+    },
+    /** Whether a click is the end of a long-press, and so already handled. */
+    tookClick() {
+      const was = pressed;
+      pressed = false;
+      return was;
+    },
+  };
 }
 
 /** Where the context menu was opened: on a row, or on the tree's empty space. */

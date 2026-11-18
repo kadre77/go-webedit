@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { clickItem } from "./ui";
 
 // Fixtures: web/e2e/fixtures. Notes/Today.md is "# Today\n\nBuy milk.\n".
 
@@ -22,8 +23,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("Markdown headings are highlighted", async ({ page }) => {
-  await item(page, "Notes").click();
-  await item(page, "Today.md").click();
+  await clickItem(page, "Notes");
+  await clickItem(page, "Today.md");
   await expect(lines(page).first().locator("span", { hasText: "Today" })).toHaveCSS("color", marianaOrange);
   // Plain paragraph text keeps the editor's foreground colour.
   await expect(lines(page).nth(2)).toHaveCSS("color", marianaForeground);
@@ -37,15 +38,15 @@ test("a new line is indented in the file's own style", async ({ page, isMobile }
   // depend on the layout; on-screen keyboard input belongs to the phone
   // layout ticket.
   test.skip(isMobile, "synthetic Enter is unreliable on the emulated phone");
-  await item(page, "Code").click();
-  await item(page, "main.go").click();
+  await clickItem(page, "Code");
+  await clickItem(page, "main.go");
   await clickLine(page, 4); // func main() {
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await page.keyboard.type("x");
   await exactText(page, 5).toBe("\tx");
 
-  await item(page, "total.py").click();
+  await clickItem(page, "total.py");
   await clickLine(page, 0); // def total(items):
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
@@ -55,8 +56,8 @@ test("a new line is indented in the file's own style", async ({ page, isMobile }
 
 // Code/fruit.txt is "apple pie\napple tart\npear\n".
 async function openFruit(page: Page) {
-  await item(page, "Code").click();
-  await item(page, "fruit.txt").click();
+  await clickItem(page, "Code");
+  await clickItem(page, "fruit.txt");
   await expect(lines(page).first()).toHaveText("apple pie");
 }
 

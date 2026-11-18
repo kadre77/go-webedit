@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { clickItem, showTree } from "./ui";
 
 // Fixtures: web/e2e/fixtures/Manage/<project>-*, so the projects, running in
 // parallel against one fake Dropbox, each work on their own files.
@@ -22,6 +23,7 @@ async function stored(page: Page, path: string) {
 
 /** Opens the context menu on a tree row and picks an action from it. */
 async function fromMenu(page: Page, row: string, action: string) {
+  await showTree(page);
   await item(page, row).click({ button: "right" });
   await menu(page).getByRole("menuitem", { name: action }).click();
 }
@@ -36,7 +38,7 @@ async function typeAtEnd(page: Page, text: string) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/auth/signin");
-  await item(page, "Manage").click();
+  await clickItem(page, "Manage", { exact: true });
 });
 
 test("a new file from the sidebar opens in a Tab, and a new folder comes from the Command Palette", async ({ page }) => {
@@ -62,6 +64,7 @@ test("a new file from the sidebar opens in a Tab, and a new folder comes from th
   await expect(folderInput).toHaveValue("Manage/");
   await folderInput.fill(`Manage/${folder}`);
   await prompt(page, "New Folder").getByRole("button", { name: "Create" }).click();
+  await showTree(page);
   await expect(item(page, folder)).toBeVisible();
   await expect(item(page, folder)).toHaveAttribute("aria-expanded", "false");
 });
@@ -69,8 +72,8 @@ test("a new file from the sidebar opens in a Tab, and a new folder comes from th
 test("renaming a folder moves its open Tab and the Tab's Draft along", async ({ page }) => {
   const folder = nameFor("rename");
   const moved = nameFor("renamed");
-  await item(page, folder).click();
-  await item(page, "Plan.md").dblclick();
+  await clickItem(page, folder, { exact: true });
+  await clickItem(page, "Plan.md", { double: true, exact: true });
   await typeAtEnd(page, ": ship it");
   await expect(tab(page, "Plan.md")).toHaveAttribute("data-modified", "true");
 
@@ -100,7 +103,7 @@ test("renaming a folder moves its open Tab and the Tab's Draft along", async ({ 
 
 test("delete asks first, then closes the file's Tab", async ({ page }) => {
   const file = nameFor("delete.md");
-  await item(page, file).dblclick();
+  await clickItem(page, file, { double: true, exact: true });
   await typeAtEnd(page, "!");
 
   page.once("dialog", (d) => {
