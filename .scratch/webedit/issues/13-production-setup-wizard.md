@@ -13,3 +13,7 @@
 - [ ] Enables Let's Encrypt for the app's domain
 - [ ] Ends by checking the health endpoint over HTTPS and prompting the Owner to sign in
 - [ ] A short runbook in the repo explains rerunning the wizard, rotating the session secret (logs out everywhere) and rotating the encryption key (requires signing in again)
+
+## Comments
+
+- 2026-11-18: The wizard is `scripts/setup-production.sh` (runbook: `docs/deploy.md`). Decided with the Owner: it only prints the commands to paste on the server; it stores nothing locally, so Dokku config is the only copy; secrets are generated on the server and set only if missing; Let's Encrypt and DNS were already set up, so it only runs `letsencrypt:enable` for the app. Still ready-for-human: the Owner runs it to make the first deploy.

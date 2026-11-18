@@ -47,6 +47,10 @@ All configuration is environment variables. The server refuses to start, naming 
 
 Health check: `GET /api/health`.
 
+## Deploying
+
+The first production deploy is a wizard: `scripts/setup-production.sh`. Rerunning it and rotating the secrets are covered in `docs/deploy.md`.
+
 ## Signing in
 
 The Owner signs in with Dropbox at `/auth/signin`. Register `<WEBEDIT_BASE_URL>/auth/callback` as the Dropbox app's redirect URI. Only `WEBEDIT_OWNER_ACCOUNT_ID` is accepted. In test mode, sign-in approves at once as that account through the fake Dropbox, so Playwright tests start at `/auth/signin`.
