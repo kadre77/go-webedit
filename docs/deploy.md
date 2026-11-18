@@ -55,3 +55,4 @@ Then sign in at `/auth/signin` so the server stores a new refresh token encrypte
 
 - `dokku logs webedit`: at startup the app names every missing or malformed variable. A refused sign-in logs the refused `account_id`.
 - `curl https://<domain>/api/health` should return `{"status":"ok"}`.
+- The domain shows nginx's default page, and the deploy log ends with a URL ending in `:5000`: Dokku mapped host port 5000 from the Dockerfile's `EXPOSE`. Run `dokku ports:set webedit http:80:5000 https:443:5000`.

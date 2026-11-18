@@ -286,7 +286,10 @@ ask_until WEBEDIT_OWNER_ACCOUNT_ID "Paste the account_id:" '^dbid:[A-Za-z0-9_-]+
 stage "Dokku: app and domain"
 on_server \
   "dokku apps:exists $APP 2>/dev/null || dokku apps:create $APP" \
-  "dokku domains:set $APP $DOMAIN"
+  "dokku domains:set $APP $DOMAIN" \
+  "dokku ports:set $APP http:80:5000"
+note "Without ports:set, Dokku copies the Dockerfile's EXPOSE 5000 and nginx listens on :5000,"
+note "so the plain domain shows nginx's default page. letsencrypt:enable later adds https:443:5000."
 pause "Done? Press Enter"
 
 stage "Dokku: configuration"
