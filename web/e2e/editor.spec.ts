@@ -14,8 +14,10 @@ async function clickLine(page: Page, n: number) {
 // toHaveText collapses whitespace, so indentation is checked through this.
 const exactText = (page: Page, n: number) => expect.poll(() => lines(page).nth(n).textContent());
 
-// Mariana's orange, used for Markdown headings, and its foreground colour.
-const marianaOrange = "rgb(249, 174, 88)";
+// Mariana's colours: a Markdown heading is white with a red #, and plain text
+// has the foreground colour.
+const marianaWhite = "rgb(255, 255, 255)";
+const marianaRed = "rgb(236, 95, 102)";
 const marianaForeground = "rgb(216, 222, 233)";
 
 test.beforeEach(async ({ page }) => {
@@ -25,7 +27,8 @@ test.beforeEach(async ({ page }) => {
 test("Markdown headings are highlighted", async ({ page }) => {
   await clickItem(page, "Notes");
   await clickItem(page, "Today.md");
-  await expect(lines(page).first().locator("span", { hasText: "Today" })).toHaveCSS("color", marianaOrange);
+  await expect(lines(page).first().locator("span", { hasText: "Today" })).toHaveCSS("color", marianaWhite);
+  await expect(lines(page).first().locator("span", { hasText: "#" }).last()).toHaveCSS("color", marianaRed);
   // Plain paragraph text keeps the editor's foreground colour.
   await expect(lines(page).nth(2)).toHaveCSS("color", marianaForeground);
 });

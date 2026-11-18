@@ -4,6 +4,8 @@
 // plain text.
 
 import { LanguageDescription, LanguageSupport, StreamLanguage, type StreamParser } from "@codemirror/language";
+import { styleTags } from "@lezer/highlight";
+import { headingMark } from "./mariana";
 
 const legacy = (parser: StreamParser<unknown>) => new LanguageSupport(StreamLanguage.define(parser));
 
@@ -92,7 +94,11 @@ languages.push(
     extensions: ["md", "markdown", "mdown", "mkd"],
     load: () =>
       import("@codemirror/lang-markdown").then((m) =>
-        m.markdown({ base: m.markdownLanguage, codeLanguages: languages }),
+        m.markdown({
+          base: m.markdownLanguage,
+          codeLanguages: languages,
+          extensions: { props: [styleTags({ HeaderMark: headingMark })] },
+        }),
       ),
   }),
 );

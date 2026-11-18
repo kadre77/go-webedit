@@ -1,6 +1,6 @@
 :root {
   /* Mariana-inspired base colours. */
-  --bg: #303841;
+  --bg: #2b323a; /* The editor's background: Mariana's #303841, a little darker. */
   --bg-sidebar: #262c33;
   --bg-hover: #3a434d;
   --bg-active: #4e5a65;

@@ -3,12 +3,12 @@
 
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
-import { tags as t } from "@lezer/highlight";
+import { Tag, tags as t } from "@lezer/highlight";
 
 const color = {
   blue: "#6699cc",
   blue2: "#4e5a65",
-  blue3: "#303841",
+  blue3: "#2b323a", // Mariana's #303841, a little darker.
   blue4: "#647382",
   blue5: "#5fb4b4",
   blue6: "#a6acb9",
@@ -24,17 +24,28 @@ const color = {
   panel: "#262c33",
 };
 
+// A Markdown heading's leading #s. CodeMirror tags them like every other
+// Markdown mark, but Mariana colours them on their own; languages.ts tags
+// the HeaderMark node with this.
+export const headingMark = Tag.define(t.processingInstruction);
+
 const chrome = EditorView.theme(
   {
     "&": { color: color.white3, backgroundColor: color.blue3, height: "100%" },
-    ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "1.5" },
+    ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "1.2" },
     ".cm-content": { caretColor: color.orange },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: color.orange, borderLeftWidth: "2px" },
     "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
       { backgroundColor: color.blue2 },
-    ".cm-activeLine": { backgroundColor: "#3a434d66" },
-    ".cm-gutters": { backgroundColor: color.blue3, color: "#a6acb980", border: "none" },
-    ".cm-activeLineGutter": { backgroundColor: "transparent", color: color.white3 },
+    // Sublime marks the current line in the gutter only.
+    ".cm-activeLine": { backgroundColor: "transparent" },
+    ".cm-gutters": { backgroundColor: color.blue3, color: color.blue6, border: "none" },
+    ".cm-activeLineGutter": { backgroundColor: color.blue2, color: color.white3 },
+    // And shows fold markers only while the pointer is over the gutter.
+    "@media (hover: hover)": {
+      ".cm-foldGutter .cm-gutterElement": { opacity: "0", transition: "opacity 0.2s" },
+      ".cm-gutters:hover .cm-foldGutter .cm-gutterElement": { opacity: "1" },
+    },
     ".cm-selectionMatch": { backgroundColor: "#4e5a6599", outline: `1px solid ${color.blue4}` },
     "&.cm-focused .cm-matchingBracket": { backgroundColor: "transparent", outline: `1px solid ${color.blue6}` },
     "&.cm-focused .cm-nonmatchingBracket": { outline: `1px solid ${color.red}` },
@@ -71,13 +82,13 @@ const highlighting = HighlightStyle.define([
   { tag: t.invalid, color: color.white, backgroundColor: color.red },
   // Markdown.
   // One rule per tag: a later rule for the same tag replaces an earlier one.
-  { tag: t.heading1, color: color.orange, fontWeight: "bold", fontSize: "1.15em" },
-  { tag: [t.heading, t.heading2, t.heading3, t.heading4, t.heading5, t.heading6], color: color.orange, fontWeight: "bold" },
+  { tag: [t.heading, t.heading1, t.heading2, t.heading3, t.heading4, t.heading5, t.heading6], color: color.white, fontWeight: "bold" },
+  { tag: headingMark, color: color.red },
   { tag: t.emphasis, color: color.pink, fontStyle: "italic" },
   { tag: t.strong, color: color.orange2, fontWeight: "bold" },
   { tag: t.strikethrough, textDecoration: "line-through" },
   { tag: [t.link], color: color.blue },
-  { tag: [t.url], color: color.blue5, textDecoration: "underline" },
+  { tag: [t.url], color: color.blue, textDecoration: "underline" },
   { tag: t.monospace, color: color.green },
   { tag: t.quote, color: color.blue6, fontStyle: "italic" },
   { tag: [t.list], color: color.white3 },
