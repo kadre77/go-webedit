@@ -4,6 +4,7 @@ import { api, setAuthLostHandler } from "./api";
 import { useAppCommands } from "./appCommands";
 import { createAppState } from "./appState";
 import { createCommands } from "./commands";
+import { createDraftStore } from "./draftStore";
 import { ConflictDialog } from "./ConflictDialog";
 import { Editor } from "./Editor";
 import { createFileActions, PathPromptDialog } from "./fileActions";
@@ -51,7 +52,7 @@ export function App() {
 }
 
 function SignedInApp() {
-  const state = createAppState();
+  const state = createAppState({ api, drafts: createDraftStore(), confirm: (message) => window.confirm(message) });
   onMount(() => {
     void state.loadTree();
     void state.restore();

@@ -6,8 +6,8 @@
 
 import { Text } from "@codemirror/state";
 import { type Accessor, batch, createEffect, createMemo, createSignal, on } from "solid-js";
-import { api, ApiError, type ChangedEntry, type OpenedFile, type TreeEntry } from "./api";
-import { createDraftStore, type StoredDraft } from "./draftStore";
+import { ApiError, type ChangedEntry, type OpenedFile, type RootFolderApi, type TreeEntry } from "./api";
+import type { DraftStore, StoredDraft } from "./draftStore";
 import { fileName, folderOf, isUnder, movedPath, pathKey } from "./paths";
 
 export { pathKey };
@@ -203,8 +203,17 @@ const createdEntry = (e: ChangedEntry): TreeEntry =>
 const movedKeys = (keys: ReadonlySet<string>, from: string, to: string) =>
   new Set([...keys].map((k) => movedPath(k, pathKey(from), pathKey(to))));
 
-export function createAppState() {
-  const store = createDraftStore();
+/** What the App state works through. The app passes the server's api, the
+ * browser's draft store and `window.confirm`; tests pass the in-memory ones
+ * in `testing/`. */
+export type AppStateDeps = {
+  api: RootFolderApi;
+  drafts: DraftStore;
+  /** Asks the Owner a yes/no question, as `window.confirm` does. */
+  confirm: (message: string) => boolean;
+};
+
+export function createAppState({ api, drafts: store, confirm }: AppStateDeps) {
   const [entries, setEntries] = createSignal<TreeEntry[]>([]);
   const [binary, setBinary] = createSignal<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set());

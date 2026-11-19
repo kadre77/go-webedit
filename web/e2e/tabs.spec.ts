@@ -202,18 +202,3 @@ test("each Tab keeps its own cursor and undo history", async ({ page }) => {
   await expect(editor(page)).toContainText("Two");
 });
 
-test("the last file clicked wins the Preview Tab, even if an earlier one loads later", async ({ page }) => {
-  let release!: () => void;
-  const held = new Promise<void>((r) => (release = r));
-  await page.route("**/api/file?path=readme.md", async (route) => {
-    await held;
-    await route.continue();
-  });
-  await clickItem(page, "readme.md");
-  await clickItem(page, "Today.md");
-  await expect(editor(page)).toContainText("Buy milk.");
-  release();
-  await page.waitForResponse("**/api/file?path=readme.md");
-  await expect(tabs(page)).toHaveText(["Today.md"]);
-  await expect(editor(page)).toContainText("Buy milk.");
-});

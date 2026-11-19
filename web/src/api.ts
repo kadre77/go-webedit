@@ -84,6 +84,21 @@ const getJSON = <T>(url: string) => requestJSON<T>(url);
 const sendJSON = <T>(url: string, body: unknown, method = "POST") =>
   requestJSON<T>(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
+/** The calls the App state makes on the Root Folder: the seam where tests
+ * put an in-memory Root Folder (`testing/fakeRootFolder.ts`) in place of
+ * the server. The comments on `api` below say how each one behaves. */
+export type RootFolderApi = {
+  tree(): Promise<TreeEntry[]>;
+  openFile(path: string): Promise<OpenedFile>;
+  checkFile(path: string): Promise<string>;
+  saveFile(path: string, content: string, rev: string): Promise<SavedFile>;
+  saveCopy(path: string, content: string): Promise<SavedFile>;
+  createFile(path: string): Promise<ChangedEntry>;
+  createFolder(path: string): Promise<ChangedEntry>;
+  move(from: string, to: string): Promise<ChangedEntry>;
+  deleteEntry(path: string): Promise<void>;
+};
+
 export const api = {
   async signedIn(): Promise<boolean> {
     return (await getJSON<{ signedIn: boolean }>("/api/session")).signedIn;
@@ -127,7 +142,7 @@ export const api = {
   saveFile(path: string, content: string, rev: string): Promise<SavedFile> {
     return sendJSON("/api/file", { path, content, rev }, "PUT");
   },
-};
+} satisfies RootFolderApi & { signedIn(): Promise<boolean> };
 
 /** Signs out the way the sidebar's button does: a plain form post, so the
  * browser sends the Origin header the server checks, and follows the server

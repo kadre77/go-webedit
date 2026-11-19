@@ -1,6 +1,6 @@
 ## Checks
 
-`make check` (fmt, glossary and error-code checks, vet, tsc, Go tests, e2e) must pass before committing app code. The pre-commit hook runs `make check-fast`; run `make hooks` once per clone to enable it. Use `corepack pnpm`, never bare `pnpm`.
+`make check` (fmt, glossary and error-code checks, vet, tsc, Go tests, vitest, e2e) must pass before committing app code. The pre-commit hook runs `make check-fast`; run `make hooks` once per clone to enable it. Use `corepack pnpm`, never bare `pnpm`.
 
 ## Navigation
 

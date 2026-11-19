@@ -27,7 +27,7 @@ New API error codes go in the spec's closed list; `make docs-check` enforces it.
 
 | File | Owns |
 |---|---|
-| `appState.ts` | The App state: the tree, the open Tabs, the Preview Tab, Drafts in memory, open/save/refresh. The largest module (about 740 lines); grep it rather than reading it whole |
+| `appState.ts` | The App state, built from a `RootFolderApi`, a `DraftStore` and a confirm function: the tree, the open Tabs, the Preview Tab, Drafts in memory, open/save/refresh. The largest module (about 740 lines); grep it rather than reading it whole |
 | `App.tsx` | Layout and wiring, and the check for outside changes when the window regains focus |
 | `Editor.tsx` | The CodeMirror view per Tab. Every `EditorView` needs the CSP nonce extension in its initial state |
 | `draftStore.ts` | Drafts and open Tabs in IndexedDB, plus the localStorage journal for a Draft typed just before the page is left |
@@ -38,8 +38,9 @@ New API error codes go in the spec's closed list; `make docs-check` enforces it.
 | `sublimeKeymap.ts`, `indentation.ts`, `languages.ts`, `mariana.ts`, `settings.ts` | The editor's feel: keys, indentation, lazy-loaded languages, colours, settings |
 | `paths.ts` | Path helpers. Dropbox paths are case-insensitive; compare them through these |
 
-## Tests: three seams, nothing below them
+## Tests: four seams, nothing below them
 
 - **Go HTTP tests** (`internal/server/*_test.go`): the in-process server against `fake.go`. `internal/dropbox/client_test.go` tests the real client against a stub HTTP server.
 - **Binary** (`cmd/webedit/main_test.go`): startup and configuration.
+- **Frontend in process** (`web/src/*.test.ts`, vitest in Node, `make test-web`): the App state built with `createAppState({ api, drafts, confirm })` over the test versions in `web/src/testing/`: `FakeRootFolder` (an in-memory Root Folder whose calls a test can hold and release, for races) and `memoryDraftStore`. Ordering rules belong here, not in e2e.
 - **E2E** (`web/e2e/`): Playwright against the real binary in test mode. Read `web/e2e/README.md` before writing or running these tests.
