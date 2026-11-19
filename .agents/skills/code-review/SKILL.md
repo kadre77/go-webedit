@@ -22,6 +22,8 @@ Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so th
 
 Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here, not inside two parallel sub-agents.
 
+Write the diff once, for both sub-agents to share, leaving out lockfiles: `git diff <fixed-point>...HEAD -- . ':!*pnpm-lock.yaml' ':!go.sum' > <scratchpad>/review.diff`, and capture `git diff --stat` with the same pathspec. Sub-agents get the stat and the file's path, and read the diff **one file at a time** (`git diff <fixed-point>...HEAD -- <path>`), never the whole file in one call: a whole diff of a ticket runs 35–70k characters and spills out of the tool result.
+
 ### 2. Identify the spec source
 
 Look for the originating spec, in this order:
@@ -61,14 +63,14 @@ Issue both sub-agent calls together, in the foreground, and aggregate the report
 
 **Standards sub-agent prompt** should include:
 
-- The full diff command and commit list.
+- The diff command, the `--stat`, and the commit list.
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
 - The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
 
 **Spec sub-agent prompt** should include:
 
 - The diff command and commit list.
-- The path or fetched contents of the spec.
+- The ticket's path, and the spec's path to look things up in: `grep -n '^#' <spec>` for its headings, then read only the sections the ticket touches.
 - The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
 
 If the spec is missing, skip the Spec sub-agent and note this in the final report.

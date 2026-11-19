@@ -8,6 +8,9 @@ const baseURL = `http://localhost:${port}`;
 export default defineConfig({
   testDir: "e2e",
   fullyParallel: true,
+  // Tests take about 3s; 15s fails a missing element fast instead of
+  // waiting out the 30s default on every test of a red run.
+  timeout: 15_000,
   forbidOnly: !!process.env.CI,
   reporter: "list",
   use: { baseURL, trace: "retain-on-failure" },
