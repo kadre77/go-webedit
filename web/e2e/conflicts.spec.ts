@@ -166,6 +166,27 @@ test("on focus, a Tab with a Draft keeps it and says the file changed elsewhere"
   await expect(conflictDialog(page)).toBeVisible();
 });
 
+test("reopening a closed file shows a change made elsewhere", async ({ page }) => {
+  const file = fileFor("reopen");
+  await openFile(page, file);
+  await changeElsewhere(page, `Conflicts/${file}`, "Shopping list: from my phone\n");
+  await page.getByRole("button", { name: `Close ${file}` }).click();
+  await expect(tabs(page)).toHaveCount(0);
+
+  await clickItem(page, file);
+  await expect(editor(page)).toHaveText("Shopping list: from my phone");
+});
+
+test("reloading the page shows a change made elsewhere to an open file", async ({ page }) => {
+  const file = fileFor("reload-page");
+  await openFile(page, file);
+  await changeElsewhere(page, `Conflicts/${file}`, "Shopping list: from my phone\n");
+
+  await page.reload();
+  await expect(editor(page)).toHaveText("Shopping list: from my phone");
+  await expect(tab(page, file)).not.toHaveAttribute("data-modified");
+});
+
 test("Refresh reloads the tree from Dropbox", async ({ page }) => {
   const added = fileFor("added");
   await clickItem(page, "Conflicts");
