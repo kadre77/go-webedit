@@ -1,3 +1,7 @@
+## Checks
+
+`make check` (fmt, glossary and error-code checks, vet, tsc, Go tests, e2e) must pass before committing app code. The pre-commit hook runs `make check-fast`; run `make hooks` once per clone to enable it.
+
 ## Agent skills
 
 ### Issue tracker

@@ -1,4 +1,4 @@
-.PHONY: web build test test-go test-e2e typecheck docker
+.PHONY: web build test test-go test-e2e typecheck fmt-check docs-check check-fast check hooks docker
 
 PNPM := corepack pnpm
 
@@ -21,6 +21,23 @@ test-e2e:
 	cd web && $(PNPM) test:e2e
 
 test: test-go test-e2e
+
+fmt-check:
+	@out=$$(gofmt -l cmd internal); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
+
+# Glossary _Avoid_ terms and the spec's closed list of error codes.
+docs-check:
+	scripts/check-docs.sh
+
+# What the pre-commit hook runs: everything but the e2e suite.
+check-fast: fmt-check docs-check typecheck test-go
+
+# Run before every commit of app code: the whole suite must be green.
+check: check-fast test-e2e
+
+# Points git at the repo's hooks (.githooks/pre-commit runs check-fast).
+hooks:
+	git config core.hooksPath .githooks
 
 docker:
 	docker build -t webedit .

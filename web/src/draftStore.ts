@@ -1,5 +1,5 @@
 // Draft store: keeps Drafts, the open Tabs and the active Tab in this
-// browser's IndexedDB, so unsaved work survives a reload, crash or closed
+// browser's IndexedDB, so a Draft survives a reload, crash or closed
 // browser tab. Every storage call is wrapped: when IndexedDB is unavailable
 // or fails, the store keeps what it's given in memory for this page only, and
 // the app carries on without errors.

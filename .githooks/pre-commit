@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Runs the fast checks (gofmt, docs, vet, tsc, go test) before each commit.
+# The e2e suite is left to `make check`. Enable with `make hooks`.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+exec make --no-print-directory check-fast
