@@ -3,7 +3,8 @@
 // (internal/dropbox/fake.go): revisions, a Save Conflict on a stale or
 // missing file, case-insensitive paths, parents created as needed. A test
 // can hold any call before it reaches the Root Folder and release it later,
-// to set up races. Only tests import this.
+// to set up races, or make a call fail as when Dropbox can't be reached.
+// Only tests import this.
 
 import { ApiError, type ChangedEntry, type OpenedFile, type RootFolderApi, type SavedFile, type TreeEntry } from "../api";
 import { fileName, folderOf, isUnder, movedPath, pathKey } from "../paths";
@@ -24,6 +25,7 @@ export class FakeRootFolder implements RootFolderApi {
   private revs = 0;
   private holds = new Map<Method, { reached(): void; released: Promise<void> }[]>();
   private counts = new Map<Method, number>();
+  private failures = new Map<Method, ApiError[]>();
 
   /** A Root Folder holding these Text Files, by path. */
   constructor(files: Record<string, string> = {}) {
@@ -59,6 +61,11 @@ export class FakeRootFolder implements RootFolderApi {
     return { reached: reachedP, release };
   }
 
+  /** Makes the next call to method fail with error, after any hold. */
+  fail(method: Method, error: ApiError) {
+    this.failures.set(method, [...(this.failures.get(method) ?? []), error]);
+  }
+
   private async call<T>(method: Method, run: () => T): Promise<T> {
     this.counts.set(method, this.calls(method) + 1);
     const [held, ...rest] = this.holds.get(method) ?? [];
@@ -66,6 +73,11 @@ export class FakeRootFolder implements RootFolderApi {
       this.holds.set(method, rest);
       held.reached();
       await held.released;
+    }
+    const [failure, ...later] = this.failures.get(method) ?? [];
+    if (failure) {
+      this.failures.set(method, later);
+      throw failure;
     }
     return run();
   }

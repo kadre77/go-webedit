@@ -4,14 +4,15 @@
 import { Text } from "@codemirror/state";
 import { createRoot } from "solid-js";
 import { describe, expect, onTestFinished, test } from "vitest";
-import type { StoredTabs } from "./draftStore";
+import type { StoredDraft, StoredTabs } from "./draftStore";
+import { ApiError } from "./api";
 import { createAppState } from "./appState";
 import { FakeRootFolder } from "./testing/fakeRootFolder";
 import { memoryDraftStore } from "./testing/memoryDraftStore";
 
-function setup(files: Record<string, string>, storedTabs?: StoredTabs) {
+function setup(files: Record<string, string>, storedTabs?: StoredTabs, storedDrafts?: Record<string, StoredDraft>) {
   const root = new FakeRootFolder(files);
-  const drafts = memoryDraftStore(storedTabs);
+  const drafts = memoryDraftStore(storedTabs, storedDrafts);
   const state = createRoot((dispose) => {
     onTestFinished(dispose);
     return createAppState({ api: root, drafts, confirm: () => true });
@@ -174,5 +175,31 @@ describe("restoring", () => {
       ],
       active: "b.md",
     });
+  });
+
+  test("a tree that loads late doesn't hide the notice about a restored Draft", async () => {
+    const { root, state, tab } = setup(
+      { "a.md": "A" },
+      { tabs: [{ path: "a.md", preview: false }], active: "a.md" },
+      { "a.md": { content: "A draft", rev: "rev1" } },
+    );
+    root.fail("openFile", new ApiError(503, "dropbox-unavailable", "Dropbox is unavailable."));
+    const held = root.hold("tree");
+    const tree = state.loadTree();
+    await held.reached;
+    await state.restore();
+    held.release();
+    await tree;
+    expect(tab("a.md").doc().toString()).toBe("A draft");
+    expect(state.error()).toContain("Couldn't open a.md");
+  });
+
+  test("a tree that loads after failing clears its own failure", async () => {
+    const { root, state } = setup({ "a.md": "A" });
+    root.fail("tree", new ApiError(503, "dropbox-unavailable", "Dropbox is unavailable."));
+    await state.loadTree();
+    expect(state.error()).toBe("Dropbox is unavailable.");
+    await state.loadTree();
+    expect(state.error()).toBeUndefined();
   });
 });

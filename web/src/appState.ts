@@ -404,12 +404,19 @@ export function createAppState({ api, drafts: store, confirm }: AppStateDeps) {
     if (isOpen(tab)) controls.get(tab)?.reload(file);
   }
 
+  // The failure the last tree load reported, if it is still showing.
+  let treeError: string | undefined;
+
+  /** Loads the tree. It runs alongside restore() at start-up, so a load
+   * that succeeds clears only a failure of its own, never another notice. */
   async function loadTree() {
     try {
       setEntries(await api.tree());
-      setError(undefined);
+      if (treeError !== undefined && error() === treeError) setError(undefined);
+      treeError = undefined;
     } catch (e) {
       report(e);
+      treeError = error();
     }
   }
 
