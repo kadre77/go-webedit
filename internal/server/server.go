@@ -46,7 +46,7 @@ func New(o Options) *echo.Echo {
 	e.HideBanner = true
 	e.HidePort = true
 	e.HTTPErrorHandler = errorHandler(o.Logger)
-	e.Use(logRequests(o.Logger), securityHeaders, requireOrigin(o.BaseURL.String()))
+	e.Use(logRequests(o.Logger), securityHeaders, noStoreAPI, requireOrigin(o.BaseURL.String()))
 
 	a := &auth{
 		port:    o.Dropbox,

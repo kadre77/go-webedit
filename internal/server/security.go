@@ -3,6 +3,7 @@ package server
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -30,6 +31,19 @@ func securityHeaders(next echo.HandlerFunc) echo.HandlerFunc {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
+		return next(c)
+	}
+}
+
+// noStoreAPI forbids caching any API response, errors included: a browser
+// that answered from its cache would hide a change made elsewhere, and file
+// contents must not be kept in a browser or proxy cache. It sits ahead of
+// the Origin check so that rejections carry it too.
+func noStoreAPI(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if p := c.Request().URL.Path; p == "/api" || strings.HasPrefix(p, "/api/") {
+			c.Response().Header().Set("Cache-Control", "no-store")
+		}
 		return next(c)
 	}
 }

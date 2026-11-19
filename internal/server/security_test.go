@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestSignOutNeedsTheAppsOrigin(t *testing.T) {
@@ -85,6 +86,37 @@ func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {
 			}
 			if got := h.Get("Referrer-Policy"); got != "same-origin" {
 				t.Errorf("Referrer-Policy = %q", got)
+			}
+		})
+	}
+}
+
+// No API response may be kept by a browser or proxy: a stored answer would
+// hide a change made elsewhere, and file contents must stay out of caches.
+func TestNoAPIResponseMayBeStored(t *testing.T) {
+	ts := newTestServerWith(t, fstest.MapFS{"a.md": {Data: []byte("A\n")}})
+	signedOut := newSignedOutServer(t, nil)
+	responses := map[string]*http.Response{}
+	responses["session"], _ = get(t, ts, "/api/session")
+	responses["tree"], _ = get(t, ts, "/api/tree")
+	responses["file"], _ = get(t, ts, "/api/file?path=a.md")
+	responses["file rev"], _ = get(t, ts, "/api/file/rev?path=a.md")
+	responses["API error"], _ = get(t, ts, "/api/file?path=..")
+	responses["missing file"], _ = get(t, ts, "/api/file?path=gone.md")
+	responses["unknown API route"], _ = get(t, ts, "/api/nope")
+	responses["bare /api"], _ = get(t, ts, "/api")
+	responses["unauthorized"], _ = get(t, signedOut, "/api/tree")
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/file?path=a.md", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	responses["forbidden origin"], _ = ts.do(t, req)
+	if res := responses["file"]; res.StatusCode != http.StatusOK {
+		t.Fatalf("opening a.md: status %d", res.StatusCode)
+	}
+
+	for name, res := range responses {
+		t.Run(name, func(t *testing.T) {
+			if got := res.Header.Get("Cache-Control"); got != "no-store" {
+				t.Errorf("status %d: Cache-Control = %q, want no-store", res.StatusCode, got)
 			}
 		})
 	}
