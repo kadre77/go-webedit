@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { ApiError } from "./api";
-import { type AppState, fileName } from "./appState";
+import type { AppState } from "./appState";
+import { fileName } from "./paths";
 
 // File management: new file, new folder, rename/move and delete, reached
 // from the sidebar's context menu and the Command Palette. Create and

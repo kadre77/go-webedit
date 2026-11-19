@@ -20,3 +20,5 @@
 - Keyboard: `interactive-widget=resizes-content` for Chrome on Android, and the app sized to `visualViewport` for iOS Safari. Touch selection and copy/paste are CodeMirror's own; neither these nor the iOS paths can be exercised in emulated Chromium, so they want a check on a real phone.
 - Existing specs now open the drawer before using the tree on a phone, through `web/e2e/ui.ts` (`showTree`, `clickItem`).
 - Not done: long-press on the tree's empty space (the root-level New File/Folder the desktop right-click gives); the Command Palette covers it. Multi-cursor isn't disabled on phones, just not offered.
+
+**2026-11-19 (agent):** Both gaps noted above are now closed. A long-press on the drawer's empty space opens the Root Folder menu (New File…, New Folder…). Multi-cursor is off in the phone layout: the editor's multi-cursor extensions sit in a compartment that follows the layout. Both are covered in `web/e2e/phone.spec.ts` and `web/e2e/editor.spec.ts`.

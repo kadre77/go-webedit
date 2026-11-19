@@ -91,6 +91,40 @@ test("Ctrl+Tab, Ctrl+PageUp and Ctrl+PageDown switch Tabs, wrapping around", asy
   await expect(active(page)).toHaveText("Today.md");
 });
 
+test("Alt+] and Alt+[ switch Tabs in an ordinary browser tab, wrapping around", async ({ page }) => {
+  await openThree(page);
+  await page.keyboard.press("Alt+BracketRight");
+  await expect(active(page)).toHaveText("readme.md");
+  await page.keyboard.press("Alt+BracketLeft");
+  await expect(active(page)).toHaveText("2020.md");
+  await page.keyboard.press("Alt+BracketLeft");
+  await expect(active(page)).toHaveText("Today.md");
+});
+
+test("Alt+Shift+number jumps to a Tab and Alt+W closes it, in an ordinary browser tab", async ({ page }) => {
+  await openThree(page);
+  await page.keyboard.press("Alt+Shift+Digit1");
+  await expect(active(page)).toHaveText("readme.md");
+  await page.keyboard.press("Alt+Shift+Digit2");
+  await expect(active(page)).toHaveText("Today.md");
+  await page.keyboard.press("Alt+KeyW");
+  await expect(tabs(page)).toHaveText(["readme.md", "2020.md"]);
+  await expect(active(page)).toHaveText("2020.md");
+});
+
+test("the browser-safe Tab keys go by physical key, as on macOS where Option types a symbol", async ({ page }) => {
+  await openThree(page);
+  // What macOS sends for Option+] and Option+W: the key is a symbol, the code the physical key.
+  const press = (key: string, code: string) =>
+    page.evaluate(([key, code]) => {
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, code, altKey: true, bubbles: true, cancelable: true }));
+    }, [key, code]);
+  await press("‘", "BracketRight");
+  await expect(active(page)).toHaveText("readme.md");
+  await press("∑", "KeyW");
+  await expect(tabs(page)).toHaveText(["Today.md", "2020.md"]);
+});
+
 test("Alt+number jumps to a Tab", async ({ page }) => {
   await openThree(page);
   await page.keyboard.press("Alt+1");

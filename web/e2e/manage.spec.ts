@@ -101,6 +101,61 @@ test("renaming a folder moves its open Tab and the Tab's Draft along", async ({ 
   expect(await stored(page, `Manage/${folder}/Plan.md`)).toBeUndefined();
 });
 
+/** Runs a command from the Command Palette. */
+async function fromPalette(page: Page, command: string) {
+  await page.keyboard.press("ControlOrMeta+Shift+P");
+  await page.getByRole("dialog", { name: "Command Palette" }).getByRole("combobox").fill(command);
+  await page.keyboard.press("Enter");
+}
+
+test("Rename or Move Folder in the Command Palette renames the active Tab's folder", async ({ page }) => {
+  const folder = nameFor("palette-rename");
+  const moved = nameFor("palette-renamed");
+  await clickItem(page, folder, { exact: true });
+  await clickItem(page, "Note.md", { double: true, exact: true });
+
+  await fromPalette(page, "rename or move folder");
+  const input = prompt(page, "Rename or Move").getByRole("textbox", { name: "Path" });
+  await expect(input).toHaveValue(`Manage/${folder}`);
+  await input.fill(`Manage/${moved}`);
+  await input.press("Enter");
+
+  await expect(tab(page, "Note.md")).toHaveAttribute("title", `Manage/${moved}/Note.md`);
+  expect(await stored(page, `Manage/${moved}/Note.md`)).toBe("Palette notes\n");
+  expect(await stored(page, `Manage/${folder}/Note.md`)).toBeUndefined();
+});
+
+test("Delete Folder in the Command Palette deletes the active Tab's folder, but never the Root Folder", async ({
+  page,
+}) => {
+  const folder = nameFor("palette-delete");
+  await clickItem(page, folder, { exact: true });
+  await clickItem(page, "Old.md", { double: true, exact: true });
+
+  page.once("dialog", (d) => {
+    expect(d.message()).toContain(`Delete ${folder}`);
+    void d.accept();
+  });
+  await fromPalette(page, "delete folder");
+  await expect(tab(page, "Old.md")).toHaveCount(0);
+  await expect(item(page, folder)).toHaveCount(0);
+  expect(await stored(page, `Manage/${folder}/Old.md`)).toBeUndefined();
+
+  // With a file in the Root Folder active, there's no folder to delete.
+  let asked = false;
+  page.on("dialog", (d) => {
+    asked = true;
+    void d.dismiss();
+  });
+  await showTree(page);
+  await clickItem(page, "readme.md", { double: true, exact: true });
+  await expect(tab(page, "readme.md")).toHaveAttribute("aria-selected", "true");
+  await fromPalette(page, "delete folder");
+  await expect(page.getByRole("dialog", { name: "Command Palette" })).toBeHidden();
+  expect(asked).toBe(false);
+  expect(await stored(page, "readme.md")).toBeDefined();
+});
+
 test("delete asks first, then closes the file's Tab", async ({ page }) => {
   const file = nameFor("delete.md");
   await clickItem(page, file, { double: true, exact: true });

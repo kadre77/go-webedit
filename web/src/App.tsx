@@ -120,7 +120,7 @@ function SignedInApp() {
             </div>
           }
         >
-          {(tab) => <Editor tab={tab()} settings={settings} onEdit={(t, doc) => state.edit(t, doc)} onView={setView} />}
+          {(tab) => <Editor tab={tab()} settings={settings} onEdit={(t, doc) => state.edit(t, doc)} onView={setView} multiCursor={() => !isPhone()} />}
         </Show>
         <Switch>
           <Match when={finder()?.kind === "files"}>

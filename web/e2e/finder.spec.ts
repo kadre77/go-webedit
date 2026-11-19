@@ -85,6 +85,17 @@ test.describe("Command Palette", () => {
     await expect(options(page, "Command Palette").filter({ hasText: "Goto Heading" })).toContainText("Ctrl+R");
   });
 
+  test("lists a Tab command's browser-safe key first, then its Sublime keys", async ({ page }) => {
+    await page.keyboard.press("Control+Shift+p");
+    await finder(page, "Command Palette").getByRole("combobox").fill("tab");
+    await expect(options(page, "Command Palette").filter({ hasText: "Close Tab" })).toHaveText(
+      /^Close Tab\s*Alt\+W · Ctrl\+W$/,
+    );
+    await expect(options(page, "Command Palette").filter({ hasText: "Next Tab" })).toHaveText(
+      /^Next Tab\s*Alt\+\] · Ctrl\+Tab · Ctrl\+PageDown$/,
+    );
+  });
+
   test("Enter runs the chosen command", async ({ page }) => {
     await clickItem(page, "readme.md", { double: true });
     await expect(tab(page, "readme.md")).toBeVisible();

@@ -58,7 +58,7 @@ export function CommandPalette(props: {
           command,
           label: command.name,
           labelMarks: match.positions,
-          hint: command.shortcut && shortcutLabel(command.shortcut),
+          hint: command.shortcut && [command.shortcut, ...(command.moreShortcuts ?? [])].map(shortcutLabel).join(" · "),
         }),
       );
   return (

@@ -66,6 +66,18 @@ async function openFruit(page: Page) {
 
 // With Shift, a letter key must be written in upper case: Playwright sends
 // "Shift+d" as the key "d", where a real keyboard sends "D".
+test("on a phone, the editor keeps a single cursor, even from a hardware keyboard", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "multi-cursor is desktop-only");
+  await openFruit(page);
+  await clickLine(page, 0);
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ControlOrMeta+d");
+  await page.keyboard.press("ControlOrMeta+d");
+  await expect(page.locator(".cm-selectionBackground")).toHaveCount(1);
+  await page.keyboard.type("plum");
+  await expect.poll(async () => (await lines(page).allTextContents()).join("\n").match(/plum/g)?.length).toBe(1);
+});
+
 test.describe("desktop keyboard", () => {
   test.skip(({ isMobile }) => isMobile, "multi-cursor and Sublime shortcuts are desktop-only");
 

@@ -6,6 +6,7 @@
 import { LanguageDescription, LanguageSupport, StreamLanguage, type StreamParser } from "@codemirror/language";
 import { styleTags } from "@lezer/highlight";
 import { headingMark } from "./mariana";
+import { fileName } from "./paths";
 
 const legacy = (parser: StreamParser<unknown>) => new LanguageSupport(StreamLanguage.define(parser));
 
@@ -112,7 +113,7 @@ export function languageFor(path: string):
   | { name: string; ready: LanguageSupport | undefined; load: () => Promise<LanguageSupport> }
   | undefined {
   // Lower-cased, so README.MD is Markdown too.
-  const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+  const name = fileName(path).toLowerCase();
   const description = LanguageDescription.matchFilename(languages, name);
   if (!description) return undefined;
   return { name: description.name, ready: description.support, load: () => description.load() };

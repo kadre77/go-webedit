@@ -12,5 +12,8 @@ export const isUnder = (path: string, root: string) => {
 export const movedPath = (path: string, root: string, to: string) =>
   isUnder(path, root) ? to + path.slice(root.length) : path;
 
+/** The last segment of a path: a file or folder's own name. */
+export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+
 /** The folder holding path: "" for the Root Folder. */
 export const folderOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf("/")));

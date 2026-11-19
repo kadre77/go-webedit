@@ -22,11 +22,16 @@ export async function showTree(page: Page) {
   await expect(page.getByRole("tree", { name: "Root Folder" })).toBeVisible();
 }
 
-/** A touch on the element's centre, held for `ms` before lifting. */
-export async function longPress(page: Page, target: Locator, ms = 800) {
+/** A touch on the element, held for `ms` before lifting: at its centre, or
+ * at `position` from its top-left corner (negative counts from the bottom-right). */
+export async function longPress(page: Page, target: Locator, ms = 800, position?: { x: number; y: number }) {
+  // Wait until the target has stopped moving (the drawer slides in), as a click would.
+  await target.click({ trial: true });
   const box = await target.boundingBox();
   if (!box) throw new Error("long-press target isn't shown");
-  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const along = (start: number, size: number, at?: number) =>
+    at === undefined ? start + size / 2 : at < 0 ? start + size + at : start + at;
+  const point = { x: along(box.x, box.width, position?.x), y: along(box.y, box.height, position?.y) };
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
   await page.waitForTimeout(ms);

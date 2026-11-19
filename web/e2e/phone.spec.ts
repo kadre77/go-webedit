@@ -99,6 +99,17 @@ test("the toolbar opens Goto Anything and the Command Palette", async ({ page })
   await expect(page.getByRole("dialog", { name: "Command Palette" })).toBeVisible();
 });
 
+test("a long-press on the drawer's empty space creates a file in the Root Folder", async ({ page }) => {
+  await showTree(page);
+  await longPress(page, tree(page), 800, { x: 40, y: -20 });
+
+  const menu = page.getByRole("menu", { name: "Root Folder actions" });
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: "New File…" }).tap();
+  const input = page.getByRole("dialog", { name: "New File" }).getByRole("textbox", { name: "Path" });
+  await expect(input).toHaveValue("");
+});
+
 test("a long-press on a drawer entry opens the file-management menu", async ({ page }) => {
   await showTree(page);
   await item(page, "Phone").tap();

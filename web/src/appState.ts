@@ -8,7 +8,7 @@ import { Text } from "@codemirror/state";
 import { type Accessor, batch, createEffect, createMemo, createSignal, on } from "solid-js";
 import { api, ApiError, type ChangedEntry, type OpenedFile, type TreeEntry } from "./api";
 import { createDraftStore, type StoredDraft } from "./draftStore";
-import { folderOf, isUnder, movedPath, pathKey } from "./paths";
+import { fileName, folderOf, isUnder, movedPath, pathKey } from "./paths";
 
 export { pathKey };
 
@@ -36,10 +36,9 @@ function buildTree(entries: TreeEntry[], binary: ReadonlySet<string>): TreeNode[
   const depth = (p: string) => p.split("/").length - 1;
   const sorted = [...entries].sort((a, b) => depth(a.path) - depth(b.path));
   for (const e of sorted) {
-    const slash = e.path.lastIndexOf("/");
     const node: TreeNode = {
       path: e.path,
-      name: e.path.slice(slash + 1),
+      name: fileName(e.path),
       kind: e.kind,
       depth: depth(e.path),
       children: [],
@@ -50,7 +49,7 @@ function buildTree(entries: TreeEntry[], binary: ReadonlySet<string>): TreeNode[
     } else {
       folders.set(pathKey(e.path), node);
     }
-    const parent = slash < 0 ? undefined : folders.get(pathKey(e.path.slice(0, slash)));
+    const parent = folders.get(pathKey(folderOf(e.path)));
     (parent?.children ?? root).push(node);
   }
   const sortAll = (nodes: TreeNode[]) => {
@@ -167,8 +166,6 @@ type Loaded =
 /** How long typing pauses before the Draft is written to browser storage. */
 const draftDelay = 300;
 
-/** The last segment of a path. */
-export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** The message for a save that failed. The Draft is always kept. */
 function saveFailure(tab: Tab, e: unknown) {

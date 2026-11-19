@@ -29,6 +29,19 @@ test("signing out returns to sign-in and stays signed out", async ({ page }) => 
   await expect(tree(page)).toHaveCount(0);
 });
 
+test("the Sign Out command in the Command Palette signs out", async ({ page }) => {
+  await page.goto("/auth/signin");
+  await showTree(page);
+  await page.keyboard.press("Control+Shift+p");
+  await page.getByRole("dialog", { name: "Command Palette" }).getByRole("combobox").fill("sign out");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("You're signed out.")).toBeVisible();
+
+  await page.goto("/");
+  await expect(signInLink(page)).toBeVisible();
+  await expect(tree(page)).toHaveCount(0);
+});
+
 test("a revoked Dropbox authorization sends the Owner to sign in again with a clear message", async ({ page }) => {
   await page.route("**/api/tree", (route) =>
     route.fulfill({

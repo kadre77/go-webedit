@@ -76,7 +76,7 @@ func dropboxError(err error) error {
 	case errors.Is(err, dropbox.ErrAlreadyExists):
 		return &Error{Status: http.StatusConflict, Code: "already-exists", Message: "Something already exists at that path."}
 	case errors.Is(err, dropbox.ErrConflict):
-		return &Error{Status: http.StatusConflict, Code: "conflict", Message: "The file changed in Dropbox."}
+		return saveConflict("")
 	}
 	return &Error{
 		Status:  http.StatusServiceUnavailable,

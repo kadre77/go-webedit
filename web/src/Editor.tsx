@@ -38,9 +38,6 @@ const baseExtensions = [
   foldGutter(),
   drawSelection(),
   dropCursor(),
-  EditorState.allowMultipleSelections.of(true),
-  rectangularSelection(),
-  crosshairCursor(),
   history(),
   indentOnInput(),
   bracketMatching(),
@@ -58,6 +55,10 @@ const language = new Compartment();
 const fontSize = new Compartment();
 const wordWrap = new Compartment();
 const indentation = new Compartment();
+// Multi-cursor, which is desktop-only: on a phone the editor keeps one selection.
+const multiCursor = new Compartment();
+const multiCursorOn = [EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor()];
+const multiCursorFor = (on: boolean) => (on ? multiCursorOn : []);
 
 // One theme per font size used, so changing size doesn't add a style each time.
 const fontSizeThemes = new Map<number, Extension>();
@@ -83,6 +84,8 @@ export function Editor(props: {
   onEdit: (tab: Tab, doc: Text) => void;
   /** Hands over the editor view once it's made, and undefined once it's gone. */
   onView: (view: EditorView | undefined) => void;
+  /** Whether multi-cursor is on: off in the phone layout. */
+  multiCursor: () => boolean;
 }) {
   let host!: HTMLDivElement;
   let view!: EditorView;
@@ -112,6 +115,7 @@ export function Editor(props: {
         fontSize.reconfigure(now.fontSize),
         wordWrap.reconfigure(now.wordWrap),
         indentation.reconfigure(now.indentation),
+        multiCursor.reconfigure(multiCursorFor(props.multiCursor())),
       ],
       annotations: Transaction.addToHistory.of(false),
     });
@@ -146,6 +150,7 @@ export function Editor(props: {
         fontSize.of(now.fontSize),
         wordWrap.of(now.wordWrap),
         indentation.of(now.indentation),
+        multiCursor.of(multiCursorFor(props.multiCursor())),
         language.of(lang?.ready ?? []),
       ],
     });
@@ -184,13 +189,13 @@ export function Editor(props: {
     );
     props.onView(view);
 
-    // A settings change applies to the shown Tab at once, and to the others
-    // as they're shown.
+    // A settings or layout change applies to the shown Tab at once, and to
+    // the others as they're shown.
     createEffect(
       on(
         () => {
           const s = props.settings;
-          return [s.fontSize(), s.wordWrap(), s.tabWidth(), s.useTabs()];
+          return [s.fontSize(), s.wordWrap(), s.tabWidth(), s.useTabs(), props.multiCursor()];
         },
         () => shown && applySettings(shown),
         { defer: true },

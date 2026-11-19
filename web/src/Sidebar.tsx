@@ -41,7 +41,14 @@ export function Sidebar(props: {
 
   return (
     <nav id="sidebar" class="sidebar" classList={{ open: props.drawerOpen }} aria-label="Files">
-      <div class="tree" role="tree" aria-label="Root Folder" onContextMenu={(e) => openMenu(e)}>
+      <div
+        class="tree"
+        role="tree"
+        aria-label="Root Folder"
+        onContextMenu={(e) => openMenu(e)}
+        // A long-press on the empty space, not on a row, is for the Root Folder.
+        onPointerDown={(e) => e.target === e.currentTarget && longPress.start(e)}
+      >
         <For each={state.visibleRows()}>
           {(node) => (
             <div
@@ -110,7 +117,7 @@ const longPressSlop = 10;
  * contextmenu event by itself, but iOS's Safari doesn't, so it's timed here.
  * The click that may follow the touch is swallowed, so the press doesn't
  * also open the file. */
-function createLongPress(onPress: (x: number, y: number, node: TreeNode) => void) {
+function createLongPress(onPress: (x: number, y: number, node?: TreeNode) => void) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let pressed = false;
   const cancel = () => {
@@ -126,7 +133,7 @@ function createLongPress(onPress: (x: number, y: number, node: TreeNode) => void
   };
   onCleanup(cancel);
   return {
-    start(e: PointerEvent, node: TreeNode) {
+    start(e: PointerEvent, node?: TreeNode) {
       cancel();
       pressed = false;
       if (e.pointerType !== "touch") return;

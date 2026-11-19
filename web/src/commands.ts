@@ -39,6 +39,13 @@ export type Commands = {
 /** The shortcut as the Owner's keyboard labels it: "Ctrl+Shift+P", or "Cmd+Shift+P" on macOS. */
 export const shortcutLabel = (shortcut: string) => shortcut.replace(/\bMod\b/, isMac ? "Cmd" : "Ctrl");
 
+/** The physical key (`KeyboardEvent.code`) for each letter and bracket. */
+const altCodes: Record<string, string> = {
+  "[": "BracketLeft",
+  "]": "BracketRight",
+  ...Object.fromEntries([..."abcdefghijklmnopqrstuvwxyz"].map((c) => [c, `Key${c.toUpperCase()}`])),
+};
+
 /** Whether the key event is the shortcut, with exactly its modifiers. */
 function matches(e: KeyboardEvent, shortcut: string) {
   const parts = shortcut.split("+");
@@ -49,6 +56,9 @@ function matches(e: KeyboardEvent, shortcut: string) {
   if (e.ctrlKey !== ctrl || e.metaKey !== meta || e.altKey !== has("Alt") || e.shiftKey !== has("Shift")) return false;
   // Digits by key code: on macOS, Alt+digit types a symbol.
   if (/^[0-9]$/.test(key)) return e.code === `Digit${key}`;
+  // So do Alt+letter and Alt+bracket, and brackets move between layouts,
+  // so with Alt these go by physical key too.
+  if (has("Alt") && altCodes[key.toLowerCase()]) return e.code === altCodes[key.toLowerCase()];
   return key.length === 1 ? e.key.toLowerCase() === key.toLowerCase() : e.key === key;
 }
 

@@ -1,5 +1,6 @@
 import { onCleanup, onMount } from "solid-js";
-import { type AppState, fileName, type SaveConflict } from "./appState";
+import type { AppState, SaveConflict } from "./appState";
+import { fileName } from "./paths";
 
 // The Save Conflict dialog: the file changed in Dropbox since it was opened,
 // so the save was refused. The Owner overwrites Dropbox's version with

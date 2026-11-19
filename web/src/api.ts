@@ -128,3 +128,14 @@ export const api = {
     return sendJSON("/api/file", { path, content, rev }, "PUT");
   },
 };
+
+/** Signs out the way the sidebar's button does: a plain form post, so the
+ * browser sends the Origin header the server checks, and follows the server
+ * to the signed-out page. */
+export function signOut() {
+  const form = document.createElement("form");
+  form.method = "post";
+  form.action = "/auth/signout";
+  document.body.append(form);
+  form.submit();
+}

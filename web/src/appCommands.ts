@@ -1,16 +1,22 @@
 // The app's own commands, with Sublime's shortcuts: the finders, saving, go
-// to line and find, and the Tab shortcuts (Ctrl+W closes, Ctrl+Tab /
-// Ctrl+Shift+Tab and Ctrl+PageDown / Ctrl+PageUp switch, Alt+1..9 jumps).
+// to line and find, and the Tab shortcuts. An ordinary browser tab keeps
+// Sublime's Tab keys for itself, so each Tab command's main shortcut is a
+// browser-safe one (Alt+W closes, Alt+] / Alt+[ switch, Alt+Shift+1..9
+// jumps), with Sublime's kept alongside (Ctrl+W, Ctrl+Tab / Ctrl+Shift+Tab,
+// Ctrl+PageDown / Ctrl+PageUp, Alt+1..9) for where the browser lets them through.
 // Their shortcuts work anywhere in the page, ahead of the editor. While a
 // dialog is up, they leave what's behind it alone: with a finder open only
 // the finders' own shortcuts work, and with the Save Conflict dialog or the
 // path prompt open none do. File management (new file and folder, rename or
-// move, delete) acts on the active Tab's file and folder. The settings
-// commands change font size, word wrap and the default indentation.
+// move, delete) acts on the active Tab's file or its folder; the folder
+// commands do nothing when that is the Root Folder. The settings commands
+// change font size, word wrap and the default indentation, and Sign Out
+// signs out.
 
 import { gotoLine, openSearchPanel } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
 import { type Accessor, onCleanup } from "solid-js";
+import { signOut } from "./api";
 import type { AppState } from "./appState";
 import type { Command, Commands } from "./commands";
 import type { FileActions } from "./fileActions";
@@ -37,6 +43,12 @@ export function useAppCommands(app: {
     if (tab) action(tab.path);
   };
 
+  /** Runs a file action on the active Tab's folder, unless that is the Root Folder. */
+  const onActiveFolder = (action: (path: string) => void) => () => {
+    const folder = state.currentFolder();
+    if (folder) action(folder);
+  };
+
   /** Runs an editor command on the active Tab's editor, if one is shown. */
   const inEditor = (command: (view: EditorView) => boolean) => () => {
     const v = view();
@@ -61,7 +73,8 @@ export function useAppCommands(app: {
 
   const tabJumps: Command[] = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
     name: `Go to Tab ${n}`,
-    shortcut: `Alt+${n}`,
+    shortcut: `Alt+Shift+${n}`,
+    moreShortcuts: [`Alt+${n}`],
     hidden: true,
     run: () => state.activateAt(n - 1),
   }));
@@ -82,16 +95,19 @@ export function useAppCommands(app: {
       { name: "Go to Line", shortcut: "Ctrl+G", run: inEditor(gotoLine) },
       { name: "Find", shortcut: "Mod+F", run: inEditor(openSearchPanel) },
       { name: "Save", shortcut: "Mod+S", run: () => void state.save() },
-      { name: "Close Tab", shortcut: "Mod+W", run: () => state.closeActive() },
-      { name: "Next Tab", shortcut: "Ctrl+Tab", moreShortcuts: ["Mod+PageDown"], run: () => state.cycle(1) },
-      { name: "Previous Tab", shortcut: "Ctrl+Shift+Tab", moreShortcuts: ["Mod+PageUp"], run: () => state.cycle(-1) },
+      { name: "Close Tab", shortcut: "Alt+W", moreShortcuts: ["Mod+W"], run: () => state.closeActive() },
+      { name: "Next Tab", shortcut: "Alt+]", moreShortcuts: ["Ctrl+Tab", "Mod+PageDown"], run: () => state.cycle(1) },
+      { name: "Previous Tab", shortcut: "Alt+[", moreShortcuts: ["Ctrl+Shift+Tab", "Mod+PageUp"], run: () => state.cycle(-1) },
       ...tabJumps,
       { name: "Refresh File Tree", run: () => void state.loadTree() },
       { name: "New File", run: () => actions.newFile(state.currentFolder()) },
       { name: "New Folder", run: () => actions.newFolder(state.currentFolder()) },
       { name: "Rename or Move File", run: onActiveFile(actions.rename) },
       { name: "Delete File", run: onActiveFile((path) => void actions.remove(path, "file")) },
+      { name: "Rename or Move Folder", run: onActiveFolder(actions.rename) },
+      { name: "Delete Folder", run: onActiveFolder((path) => void actions.remove(path, "folder")) },
       ...settingsCommands,
+      { name: "Sign Out", run: signOut },
     ),
   );
 

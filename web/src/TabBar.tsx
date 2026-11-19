@@ -1,5 +1,6 @@
 import { For } from "solid-js";
-import { type AppState, fileName } from "./appState";
+import type { AppState } from "./appState";
+import { fileName } from "./paths";
 
 // The open Tabs. The Preview Tab is shown in italics; double-clicking it pins
 // it. A Tab with a Draft shows a modified dot in place of its close button
