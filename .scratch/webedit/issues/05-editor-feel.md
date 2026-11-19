@@ -29,3 +29,5 @@ Decisions to note:
 - Alt+Shift+M switches Tab focus mode, so keyboard users can Tab out of the editor. Sublime's Ctrl+M (go to bracket) replaces CodeMirror's default binding for this.
 - Tab with a selection inside one line replaces the selection with an indent, as Sublime does. A selection that spans lines is indented instead.
 - File extensions are matched case-insensitively.
+
+**2026-11-19 (Owner decision):** The editor background is `#2b323a`, a little darker than Mariana's `#303841` (commit 01d543e). This is intentional and is now recorded in story 31.

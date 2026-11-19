@@ -50,12 +50,12 @@ A single-user web app on a public VPS (deployed with Dokku from a Dockerfile). T
 26. As the Owner, I want single-clicking another file to replace the Preview Tab, so that browsing stays tidy.
 27. As the Owner, I want a Tab with a Draft to show a modified dot, so that I can see what isn't saved.
 28. As the Owner, I want closing a Tab with a Draft to ask before discarding it, so that I don't lose work by accident.
-29. As the Owner, I want Sublime-style shortcuts to switch and close Tabs (Ctrl+W, Ctrl+Tab, Ctrl+PageUp/PageDown, Alt+number), so that my muscle memory works.
+29. As the Owner, I want Sublime-style shortcuts to switch and close Tabs (Ctrl+W, Ctrl+Tab, Ctrl+PageUp/PageDown, Alt+number), so that my muscle memory works. An ordinary browser tab keeps those keys for itself, so each also has a browser-safe key that works everywhere: Alt+W closes, Alt+] / Alt+[ switch, and Alt+Shift+number jumps.
 30. As the Owner, I want my open Tabs restored when I come back to the app in the same browser, so that I can pick up where I left off.
 
 ### Editing
 
-31. As the Owner, I want the Mariana dark theme, so that the app looks and feels like my Sublime setup.
+31. As the Owner, I want the Mariana dark theme, so that the app looks and feels like my Sublime setup. The editor background is a little darker than Mariana's (`#2b323a` instead of `#303841`).
 32. As the Owner, I want syntax highlighting chosen from the file extension, so that code and Markdown are readable.
 33. As the Owner, I want Markdown highlighting to be first-class, so that my notes read well while I edit them.
 34. As the Owner, I want highlighting for JS/TS, JSON, HTML/CSS, Go, Python, YAML, Shell and SQL, loaded only when needed, so that the app stays fast to load.
@@ -75,7 +75,7 @@ A single-user web app on a public VPS (deployed with Dokku from a Dockerfile). T
 45. As the Owner, when a Save Conflict happens, I want to choose between overwriting with mine, reloading theirs, or saving mine as a copy next to the original, so that I can resolve it without losing either version.
 46. As the Owner, I want my Draft kept in browser storage as I type, so that a crash, reload or closed tab doesn't lose unsaved work.
 47. As the Owner, when I reopen a file that has a stored Draft, I want the Draft restored and marked modified, so that I can still save or discard it.
-48. As the Owner, when a Tab regains focus, I want the app to check whether the file changed in Dropbox, so that I learn about outside edits early.
+48. As the Owner, when the app's window regains focus, I want it to check whether any open Tab's file changed in Dropbox, so that I learn about outside edits early.
 49. As the Owner, when a file with no Draft changed in Dropbox, I want the Tab to reload the new content quietly, so that I'm always looking at the current version.
 50. As the Owner, when a file with a Draft changed in Dropbox, I want to be told (and not have my Draft replaced), so that I can decide what to do before saving.
 51. As the Owner, I want a clear error when a save fails for network or Dropbox reasons, with my Draft kept, so that I can retry.
@@ -147,7 +147,7 @@ A single-user web app on a public VPS (deployed with Dokku from a Dockerfile). T
 
 ### Security headers and logging
 
-- Responses set a strict Content-Security-Policy (`default-src 'self'`, no inline script, no `eval`; the app page carries a fresh nonce that allows CodeMirror's injected `<style>` element and nothing else, and is never cached), HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `frame-ancestors 'none'`.
+- Responses set a strict Content-Security-Policy (`default-src 'self'`, no inline script, no `eval`; the app page carries a fresh nonce that allows CodeMirror's injected `<style>` element and nothing else, and is never cached), HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, `frame-ancestors 'none'`, and `X-Frame-Options: DENY` for browsers that predate `frame-ancestors`.
 - Request logging never records cookies, authorization headers, OAuth codes or tokens.
 
 ### API contract (JSON under `/api`)
@@ -156,14 +156,14 @@ Shapes, not exact names:
 
 - **Tree:** returns every entry in the Root Folder from one recursive listing: path (display case), kind (file or folder), size, and for files whether they are openable (a Text File) or not (and why: binary or too large). Whether a file is binary can't be known from metadata alone, so the tree reports size and leaves text-vs-binary to opening (see Open file).
 - **Open file:** takes a path, returns content, revision, and the detected line ending and trailing-newline flag. Refuses files over 5 MB. Refuses Binary Files (not valid UTF-8, or containing a null byte) with a distinct error, and the frontend then marks that file as binary in the tree for the rest of the session.
-- **Check file:** takes a path, returns its current revision, so a Tab can tell whether the file changed in Dropbox when it regains focus.
+- **Check file:** takes a path, returns its current revision, so a Tab can tell whether the file changed in Dropbox when the window regains focus.
 - **Save file:** takes a path, content and the revision it was opened at. The server applies the file's original line endings and trailing newline before uploading with a revision-match condition. On success returns the new revision. On mismatch returns a Save Conflict error with the current revision.
 - **Save as copy:** takes a path and content, writes it to a new sibling path (the original name with a "conflicted copy" suffix and a timestamp, made unique if needed), and returns the new path and revision.
 - **Create file / create folder:** fail if something already exists at the path.
 - **Move:** renames or moves a file or folder, and fails if the destination exists.
 - **Delete:** deletes a file or folder. Dropbox keeps deleted items in its trash.
 - **Session:** returns whether the caller is signed in. Sign-in start (`GET /auth/signin`), OAuth callback (`GET /auth/callback`, the redirect URI registered with Dropbox) and sign-out (`POST /auth/signout`) are plain browser routes, not JSON. They end on the app's `/signin?reason=...` page when sign-in fails or after sign-out.
-- Errors use one JSON shape with a machine-readable code and a human message. The codes are: bad-request, unauthorized, reauthorize, forbidden-origin, invalid-path, not-found, not-a-file (a folder where a file was expected), already-exists, conflict, binary-file, too-large, dropbox-unavailable. A new code is added to this list when it is introduced.
+- Errors use one JSON shape with a machine-readable code and a human message. The codes are: bad-request, unauthorized, reauthorize, forbidden-origin, invalid-path, not-found, not-a-file (a folder where a file was expected), already-exists, conflict, binary-file, too-large, dropbox-unavailable, method-not-allowed (an HTTP method the route doesn't accept), internal (an unexpected server error). A new code is added to this list when it is introduced.
 
 ### Line endings and encoding
 
@@ -176,7 +176,7 @@ Shapes, not exact names:
 - SolidJS application with these modules:
   - **API client:** typed wrapper over the JSON API that turns error codes into typed failures and handles 401/reauthorize redirects.
   - **App state:** the tree, open Tabs (including which one is the Preview Tab), the active Tab, Drafts, and each Tab's revision. It also owns the conflict and outside-change rules.
-  - **Draft store:** persists Drafts, the list of open Tabs and the active Tab in browser storage (IndexedDB), keyed by path, and restores them on load. It wraps every storage call so the app still works when storage is unavailable.
+  - **Draft store:** persists Drafts, the list of open Tabs and the active Tab in browser storage (IndexedDB), keyed by path, and restores them on load. A Draft written as the page is left also goes synchronously to a localStorage journal, because the browser can abort an IndexedDB write while the page is torn down; the next time the store opens, it moves the journal into IndexedDB before serving reads. It wraps every storage call so the app still works when storage is unavailable.
   - **Editor view:** CodeMirror 6 with the Mariana dark theme, language detection by file extension with languages loaded lazily, indentation detection, the Sublime-style keymap, multi-cursor (desktop), search and replace, and go-to-line.
   - **Goto Anything** and **Command Palette:** one shared fuzzy-finder overlay used by both, ranking file-name matches above matches spread across the path.
   - **Goto heading (Ctrl+R):** lists Markdown headings from CodeMirror's Markdown syntax tree. For other languages it shows "no symbols".
@@ -185,12 +185,13 @@ Shapes, not exact names:
   - **Settings:** font size, word wrap (default on for phones, off for desktop), default tab width, default spaces-or-tabs. Stored in browser storage.
   - **Layout:** a desktop layout (sidebar, tab bar, editor) and a phone layout (drawer, compact tabs, touch toolbar), switched by viewport width.
 - The Sublime keymap is written for this app. CodeMirror 6 has no official Sublime keymap, but its built-in commands cover multi-cursor and select-next-occurrence (Ctrl+D). Shortcuts use Cmd instead of Ctrl on macOS.
-- Outside-change rules when a Tab regains focus: if the Dropbox revision is unchanged, do nothing. If it changed and the Tab has no Draft, reload the content. If it changed and the Tab has a Draft, show a notice and keep the Draft. The next save will raise a Save Conflict.
+- Outside-change rules, applied to each open Tab when the window regains focus: if the Dropbox revision is unchanged, do nothing. If it changed and the Tab has no Draft, reload the content. If it changed and the Tab has a Draft, show a notice and keep the Draft. The next save will raise a Save Conflict.
 - Rename/move updates every open Tab and stored Draft under the old path. Delete closes the affected Tabs after confirmation and drops their Drafts.
 
 ### Test mode
 
 - The binary has a test mode, enabled only by an explicit environment variable, that swaps the real Dropbox adapter for the in-memory fake, seeded from a fixture directory, and replaces the Dropbox OAuth redirect with an immediate sign-in as a configured fake account. The server refuses to start in test mode when the configured public base URL uses `https` and is not a loopback host, so test mode can't be switched on by accident in production.
+- In test mode only, a test hook lets Playwright change the fake Dropbox mid-test: `PUT /api/test/file` writes a file and `DELETE /api/test/file?path=` deletes one, as an outside edit would.
 
 ## Testing Decisions
 
